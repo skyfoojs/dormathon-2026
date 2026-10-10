@@ -3,6 +3,7 @@ import {
   Boxes,
   LineChart,
   Truck,
+  CircleHelp,
   Settings as SettingsIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -24,4 +25,5 @@ export const NAV_ITEMS: NavItem[] = [
 export const NAV_SECONDARY_ITEMS: NavItem[] = [
   { label: "Inventory", href: "/inventory", icon: Boxes },
   { label: "Settings", href: "/settings", icon: SettingsIcon },
+  { label: "FAQ", href: "/faq", icon: CircleHelp },
 ];
