@@ -3,7 +3,7 @@
 import { DataTable } from "@/components/ui/DataTable";
 import { ListChecks } from "lucide-react";
 import { IconButton } from "@/components/ui/Button";
-import { RowActions } from "@/components/inventory/RowActions";
+import { RowActions } from "@/components/items/RowActions";
 import { Tag, type TagTone } from "@/components/ui/Tag";
 import { createTableColumnHelper } from "@/lib/table/features";
 import { formatShortDate } from "@/lib/data/dates";

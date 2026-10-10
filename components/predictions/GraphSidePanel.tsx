@@ -2,7 +2,7 @@ import { ShieldCheck } from "lucide-react";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { ProvenanceTag, type ProvenanceKind } from "@/components/ui/Tag";
 import { ModelBadge } from "@/components/predictions/ModelBadge";
-import { StatTile } from "@/components/predictions/StatTile";
+import { StatTile } from "@/components/ui/StatTile";
 import { cn, focusRingClasses } from "@/lib/cn";
 import type { PredictionRunDetail, RunModel, RunStep } from "@/lib/mock/predictionDetail";
 

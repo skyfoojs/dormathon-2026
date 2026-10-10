@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { Input, Label } from "@/components/ui/Input";
 import { FilterChips } from "@/components/ui/FilterChips";
-import { SavedBanner, ConfirmDeleteBanner } from "@/components/ui/Banner";
+import { SavedBanner, ConfirmDeleteBanner, ErrorBanner } from "@/components/ui/Banner";
 import { Modal } from "@/components/ui/Modal";
 import { PurchaseOrderDetails } from "@/components/orders/PurchaseOrderDetails";
 import { PurchaseOrdersTable } from "@/components/orders/PurchaseOrdersTable";
@@ -176,9 +176,9 @@ function OrdersViewContent({ facilityId }: { facilityId: number }) {
       />
 
       {loadError ? (
-        <div className="rounded-md border border-red bg-red/5 p-4 text-sm text-red-dark">
+        <ErrorBanner>
           Could not load data from the database: {(loadError as Error).message}
-        </div>
+        </ErrorBanner>
       ) : null}
 
       {showSaved ? <SavedBanner onDismiss={() => setShowSaved(false)} /> : null}

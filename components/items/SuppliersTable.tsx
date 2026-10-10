@@ -1,7 +1,7 @@
 "use client";
 
 import { DataTable } from "@/components/ui/DataTable";
-import { RowActions } from "@/components/inventory/RowActions";
+import { RowActions } from "@/components/items/RowActions";
 import { Tag, type TagTone } from "@/components/ui/Tag";
 import { createTableColumnHelper } from "@/lib/table/features";
 import type { SupplierRiskLevel, SupplierRow } from "@/lib/data/inventory";

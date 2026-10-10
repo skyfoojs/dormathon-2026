@@ -15,6 +15,7 @@ import { usePredictions } from "@/components/providers/PredictionsProvider";
 import * as api from "@/lib/api/resources";
 import { ALGO_CHANGES, ALGO_SOURCES, buildTierRows, type WmaWindowDays } from "@/lib/mock/algorithmicForecast";
 import { buildRunDetail } from "@/lib/mock/predictionDetail";
+import { ErrorBanner } from "@/components/ui/Banner";
 
 const SUBTITLE: Record<ForecastMode, string> = {
   ai: "When the models last read the outside world, what each one found, and what they suggest.",
@@ -65,9 +66,9 @@ export default function PredictionsView() {
           Checking whether any purchase orders are needed{"…"}
         </p>
       ) : autoOrdersMutation.error ? (
-        <div role="alert" className="rounded-md border border-red bg-red/5 p-4 text-sm text-red-dark">
+        <ErrorBanner>
           AiGIS could not raise purchase orders. {(autoOrdersMutation.error as Error).message}
-        </div>
+        </ErrorBanner>
       ) : autoOrders ? (
         <div
           role="status"

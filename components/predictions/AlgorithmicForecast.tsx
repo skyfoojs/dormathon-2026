@@ -8,7 +8,7 @@ import { Label, Select } from "@/components/ui/Input";
 import { Segmented } from "@/components/ui/Segmented";
 import { ProvenanceTag, Tag, type TagTone } from "@/components/ui/Tag";
 import { AlgorithmicForecastChart } from "@/components/predictions/AlgorithmicForecastChart";
-import { StatTile } from "@/components/predictions/StatTile";
+import { StatTile } from "@/components/ui/StatTile";
 import { createTableColumnHelper } from "@/lib/table/features";
 import {
   ALGO_ITEMS,

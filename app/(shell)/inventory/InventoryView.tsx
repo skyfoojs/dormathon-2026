@@ -1,271 +1,146 @@
 "use client";
 
 import * as React from "react";
-import { Search } from "lucide-react";
+import { format, parseISO } from "date-fns";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
-import { Button } from "@/components/ui/Button";
-import { Input, Label } from "@/components/ui/Input";
-import { SavedBanner, ConfirmDeleteBanner } from "@/components/ui/Banner";
-import { ItemForm } from "@/components/inventory/ItemForm";
-import { SupplierForm } from "@/components/inventory/SupplierForm";
-import { ItemsTable } from "@/components/inventory/ItemsTable";
-import { SuppliersTable } from "@/components/inventory/SuppliersTable";
-import { useFacility } from "@/components/providers/FacilityProvider";
-import { getItemRows, getSupplierRows } from "@/lib/data/inventory";
-import type { ItemFormValues, SupplierFormValues } from "@/lib/validation/inventory";
+import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
+import { DayStatusLegend, MonthCalendar, type DayStatus } from "@/components/ui/MonthCalendar";
+import { FilterChips } from "@/components/ui/FilterChips";
+import { SearchInput } from "@/components/ui/SearchInput";
+import { StatTile } from "@/components/ui/StatTile";
+import { DailyStockTable } from "@/components/inventory/DailyStockTable";
 import * as api from "@/lib/api/resources";
-import type { Item, Supplier } from "@/lib/db/types";
+import type { DailyStockInput } from "@/lib/api/resources";
+import { ErrorBanner } from "@/components/ui/Banner";
 
-type Panel =
-  | { kind: "item"; mode: "add" }
-  | { kind: "item"; mode: "edit"; id: number }
-  | { kind: "item"; mode: "delete"; id: number }
-  | { kind: "supplier"; mode: "add" }
-  | { kind: "supplier"; mode: "edit"; id: number }
-  | { kind: "supplier"; mode: "delete"; id: number };
+type EntryFilter = "all" | "missing" | "entered";
 
 export default function InventoryView() {
-  const { facilityId } = useFacility();
-  if (facilityId === null) return null;
-  return <InventoryViewContent facilityId={facilityId} />;
-}
-
-function InventoryViewContent({ facilityId }: { facilityId: number }) {
   const qc = useQueryClient();
+  const [today] = React.useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [date, setDate] = React.useState(today);
+  const [month, setMonth] = React.useState(today);
   const [search, setSearch] = React.useState("");
-  const [panel, setPanel] = React.useState<Panel | null>(null);
-  const [showSaved, setShowSaved] = React.useState(false);
+  const [filter, setFilter] = React.useState<EntryFilter>("all");
+  const monthKey = month.slice(0, 7);
 
+  const stockQuery = useQuery({ queryKey: ["daily-stock", date], queryFn: () => api.getDailyStock(date) });
+  const dayCountsQuery = useQuery({
+    queryKey: ["daily-stock-days", monthKey],
+    queryFn: () => api.getDailyStockDayCounts(monthKey),
+  });
   const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
-  const suppliersQuery = useQuery({ queryKey: ["suppliers"], queryFn: api.getSuppliers });
-  const poQuery = useQuery({
-    queryKey: ["purchase-orders", facilityId],
-    queryFn: () => api.getPurchaseOrders(facilityId),
-  });
-  const weeklyInventoryQuery = useQuery({
-    queryKey: ["weekly-inventory", facilityId],
-    queryFn: () => api.getWeeklyInventory(facilityId),
+
+  const saveMutation = useMutation({
+    mutationFn: (input: DailyStockInput) => api.saveDailyStock(input),
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["daily-stock"] }),
+        qc.invalidateQueries({ queryKey: ["daily-stock-days"] }),
+      ]),
   });
 
-  const items = itemsQuery.data ?? [];
-  const suppliers = suppliersQuery.data ?? [];
-  const purchaseOrders = poQuery.data ?? [];
-  const weeklyInventory = weeklyInventoryQuery.data ?? [];
-
-  function saved() {
-    setPanel(null);
-    setShowSaved(true);
-  }
-
-  const invalidateItems = () => qc.invalidateQueries({ queryKey: ["items"] });
-  const invalidateSuppliers = () => qc.invalidateQueries({ queryKey: ["suppliers"] });
-  const invalidateWeekly = () => qc.invalidateQueries({ queryKey: ["weekly-inventory", facilityId] });
-
-  const createItemMutation = useMutation({
-    mutationFn: (input: Omit<Item, "item_id">) => api.createItem(input),
-    onSuccess: () => {
-      invalidateItems();
-      saved();
-    },
-  });
-  const updateItemMutation = useMutation({
-    mutationFn: ({ id, input }: { id: number; input: Omit<Item, "item_id"> }) => api.updateItem(id, input),
-    onSuccess: () => {
-      invalidateItems();
-      saved();
-    },
-  });
-  const deleteItemMutation = useMutation({
-    mutationFn: (id: number) => api.deleteItem(id),
-    onSuccess: invalidateItems,
-  });
-  const reorderLevelMutation = useMutation({
-    mutationFn: ({ recordId, level }: { recordId: number; level: number }) =>
-      api.updateReorderLevel(recordId, level),
-    onSuccess: invalidateWeekly,
-  });
-
-  const createSupplierMutation = useMutation({
-    mutationFn: (input: Omit<Supplier, "supplier_id">) => api.createSupplier(input),
-    onSuccess: () => {
-      invalidateSuppliers();
-      saved();
-    },
-  });
-  const updateSupplierMutation = useMutation({
-    mutationFn: ({ id, input }: { id: number; input: Omit<Supplier, "supplier_id"> }) =>
-      api.updateSupplier(id, input),
-    onSuccess: () => {
-      invalidateSuppliers();
-      saved();
-    },
-  });
-  const deleteSupplierMutation = useMutation({
-    mutationFn: (id: number) => api.deleteSupplier(id),
-    onSuccess: invalidateSuppliers,
-  });
-
-  const itemRows = getItemRows(facilityId, items, weeklyInventory, suppliers);
-  const filteredItemRows = itemRows.filter((r) =>
-    r.item.item_name.toLowerCase().includes(search.toLowerCase()),
+  const rows = stockQuery.data ?? [];
+  const itemCount = itemsQuery.data?.length ?? 0;
+  const dayCounts = React.useMemo(
+    () => new Map((dayCountsQuery.data ?? []).map((d) => [d.date, d.entered])),
+    [dayCountsQuery.data],
   );
-  const supplierRows = getSupplierRows(facilityId, suppliers, items, purchaseOrders);
 
-  function handleItemSubmit(values: ItemFormValues) {
-    const { reorder_level, ...rest } = values;
-    const itemData = { ...rest, is_critical: (rest.is_critical ? 1 : 0) as 0 | 1 };
-    if (panel?.kind === "item" && panel.mode === "edit") {
-      updateItemMutation.mutate({ id: panel.id, input: itemData });
-      const latestRecordId = itemRows.find((r) => r.item.item_id === panel.id)?.latestRecordId;
-      if (reorder_level !== undefined && latestRecordId) {
-        reorderLevelMutation.mutate({ recordId: latestRecordId, level: reorder_level });
-      }
-    } else {
-      createItemMutation.mutate(itemData);
-    }
+  function getStatus(day: string): DayStatus | null {
+    if (itemCount === 0) return null;
+    const entered = dayCounts.get(day) ?? 0;
+    if (entered >= itemCount) return "complete";
+    return entered > 0 ? "partial" : "missing";
   }
 
-  function handleSupplierSubmit(values: SupplierFormValues) {
-    const supplierData = {
-      ...values,
-      contact_name: values.contact_name || null,
-      contact_email: values.contact_email || null,
-      contact_phone: values.contact_phone || null,
-    };
-    if (panel?.kind === "supplier" && panel.mode === "edit") {
-      updateSupplierMutation.mutate({ id: panel.id, input: supplierData });
-    } else {
-      createSupplierMutation.mutate(supplierData);
-    }
+  function selectDate(day: string) {
+    setDate(day);
+    setMonth(day);
   }
 
-  function handleDeleteConfirm() {
-    if (!panel || panel.mode !== "delete") return;
-    if (panel.kind === "item") deleteItemMutation.mutate(panel.id);
-    if (panel.kind === "supplier") deleteSupplierMutation.mutate(panel.id);
-    setPanel(null);
-  }
-
-  const loadError = itemsQuery.error || suppliersQuery.error || poQuery.error || weeklyInventoryQuery.error;
+  const enteredCount = rows.filter((r) => r.entered).length;
+  const stockoutCount = rows.filter((r) => r.stockout).length;
+  const visibleRows = rows.filter(
+    (r) =>
+      r.item_name.toLowerCase().includes(search.toLowerCase()) &&
+      (filter === "all" || (filter === "entered") === r.entered),
+  );
+  const loadError = stockQuery.error || dayCountsQuery.error || itemsQuery.error;
 
   return (
     <>
       <PageHeader
         title="Inventory"
-        subtitle="Items and suppliers for this facility. Purchase orders are on the Orders page."
+        subtitle="Record each item's stock movements for the day. Opening and closing stock are calculated."
       />
 
       {loadError ? (
-        <div className="rounded-md border border-red bg-red/5 p-4 text-sm text-red-dark">
+        <ErrorBanner>
           Could not load data from the database: {(loadError as Error).message}
-        </div>
+        </ErrorBanner>
       ) : null}
 
-      {showSaved ? <SavedBanner onDismiss={() => setShowSaved(false)} /> : null}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <Card as="section" aria-label="Choose a day" className="flex flex-col gap-3 p-5">
+          <MonthCalendar
+            month={month}
+            onMonthChange={setMonth}
+            selected={date}
+            onSelect={selectDate}
+            maxDate={today}
+            getStatus={getStatus}
+          />
+          <DayStatusLegend />
+        </Card>
 
-      {panel?.mode === "delete" ? (
-        <ConfirmDeleteBanner
-          label={deleteLabel(panel, itemRows, supplierRows)}
-          onCancel={() => setPanel(null)}
-          onConfirm={handleDeleteConfirm}
-        />
-      ) : null}
-
-      {panel?.kind === "item" && panel.mode !== "delete" ? (
-        <ItemForm
-          mode={panel.mode}
-          item={panel.mode === "edit" ? items.find((i) => i.item_id === panel.id) : undefined}
-          previousReorderLevel={
-            panel.mode === "edit"
-              ? (itemRows.find((r) => r.item.item_id === panel.id)?.reorderLevel ?? null)
-              : null
-          }
-          suppliers={suppliers}
-          onCancel={() => setPanel(null)}
-          onSubmit={handleItemSubmit}
-        />
-      ) : null}
-
-      {panel?.kind === "supplier" && panel.mode !== "delete" ? (
-        <SupplierForm
-          mode={panel.mode}
-          supplier={
-            panel.mode === "edit" ? suppliers.find((s) => s.supplier_id === panel.id) : undefined
-          }
-          onCancel={() => setPanel(null)}
-          onSubmit={handleSupplierSubmit}
-        />
-      ) : null}
-
-      <Tabs defaultValue="items" className="flex flex-col gap-5">
-        <TabsList aria-label="Inventory views">
-          <TabsTrigger value="items">Items</TabsTrigger>
-          <TabsTrigger value="suppliers">Suppliers</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="items" className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="item-search" className="sr-only">
-                Search items
-              </Label>
-              <div className="relative">
-                <Search
-                  size={16}
-                  className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted"
-                  aria-hidden="true"
-                />
-                <Input
-                  id="item-search"
-                  placeholder="Search items by name"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-64 pl-9"
-                />
-              </div>
+        <Card as="section" className="flex flex-col gap-4 p-5 lg:col-span-2">
+          <CardHeader>
+            <CardTitle>{format(parseISO(date), "EEEE d MMMM yyyy")}</CardTitle>
+          </CardHeader>
+          <CardBody>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <StatTile label="Items entered" value={`${enteredCount} of ${rows.length}`} />
+              <StatTile label="Still missing" value={rows.length - enteredCount} />
+              <StatTile label="Stockouts" value={stockoutCount} />
             </div>
-            <Button variant="primary" onClick={() => setPanel({ kind: "item", mode: "add" })}>
-              Add item
-            </Button>
-          </div>
-          <ItemsTable
-            rows={filteredItemRows}
-            onEdit={(r) => setPanel({ kind: "item", mode: "edit", id: r.item.item_id })}
-            onDelete={(r) => setPanel({ kind: "item", mode: "delete", id: r.item.item_id })}
-          />
-          <p className="text-xs text-muted">
-            On-hand is the latest closing stock. Cover is on-hand divided by
-            mean weekly issue over the last 6 weeks.
-          </p>
-        </TabsContent>
+            <p className="text-sm text-strong-muted">
+              Opening stock is the previous day&apos;s closing stock. Closing = opening + received − issued −
+              wastage. Editing a past day carries the change forward to later days.
+            </p>
+          </CardBody>
+        </Card>
+      </div>
 
-        <TabsContent value="suppliers" className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">Suppliers</h2>
-            <Button variant="primary" onClick={() => setPanel({ kind: "supplier", mode: "add" })}>
-              Add supplier
-            </Button>
-          </div>
-          <SuppliersTable
-            rows={supplierRows}
-            onEdit={(r) => setPanel({ kind: "supplier", mode: "edit", id: r.supplier.supplier_id })}
-            onDelete={(r) => setPanel({ kind: "supplier", mode: "delete", id: r.supplier.supplier_id })}
+      <Card as="section" aria-label="Stock for the day" className="flex flex-col gap-4 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <SearchInput
+            id="daily-stock-search"
+            label="Search items"
+            placeholder="Search items by name"
+            value={search}
+            onChange={setSearch}
           />
-        </TabsContent>
-      </Tabs>
+          <FilterChips
+            label="Entry status"
+            value={filter}
+            onChange={setFilter}
+            chips={[
+              { id: "all", label: "All", count: rows.length },
+              { id: "missing", label: "Missing", count: rows.length - enteredCount },
+              { id: "entered", label: "Entered", count: enteredCount },
+            ]}
+          />
+        </div>
+        {stockQuery.isLoading ? (
+          <p role="status" className="text-sm text-muted">
+            Loading stock{"…"}
+          </p>
+        ) : (
+          <DailyStockTable key={date} rows={visibleRows} onSave={saveMutation.mutateAsync} />
+        )}
+      </Card>
     </>
   );
-}
-
-function deleteLabel(
-  panel: Extract<Panel, { mode: "delete" }>,
-  itemRows: ReturnType<typeof getItemRows>,
-  supplierRows: ReturnType<typeof getSupplierRows>,
-): string {
-  if (panel.kind === "item") {
-    return itemRows.find((r) => r.item.item_id === panel.id)?.item.item_name ?? "this item";
-  }
-  return supplierRows.find((r) => r.supplier.supplier_id === panel.id)?.supplier.supplier_name ?? "this supplier";
 }

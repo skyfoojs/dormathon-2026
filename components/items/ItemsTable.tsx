@@ -1,7 +1,7 @@
 "use client";
 
 import { DataTable } from "@/components/ui/DataTable";
-import { RowActions } from "@/components/inventory/RowActions";
+import { RowActions } from "@/components/items/RowActions";
 import { Tag } from "@/components/ui/Tag";
 import { cn } from "@/lib/cn";
 import { createTableColumnHelper } from "@/lib/table/features";

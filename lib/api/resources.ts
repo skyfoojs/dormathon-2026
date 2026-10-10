@@ -96,6 +96,44 @@ export function getWeeklyInventory(facilityId: number, itemId?: number, weeks = 
   return apiGet<WeeklyInventory[]>(`/api/weekly-inventory?${params}`);
 }
 
+export type DailyStock = {
+  item_id: number;
+  item_name: string;
+  unit: string | null;
+  inventory_date: string;
+  entered: boolean;
+  opening_stock: number;
+  received_qty: number | null;
+  issued_qty: number | null;
+  unmet_demand_qty: number | null;
+  wastage_qty: number | null;
+  closing_stock: number | null;
+  stockout: boolean | null;
+};
+
+export type DailyStockInput = {
+  item_id: number;
+  inventory_date: string;
+  received_qty: number;
+  issued_qty: number;
+  unmet_demand_qty: number;
+  wastage_qty: number;
+};
+
+export type DailyStockDayCount = { date: string; entered: number };
+
+export function getDailyStock(date: string): Promise<DailyStock[]> {
+  return apiGet<DailyStock[]>(`/api/daily-inventory?date=${date}&pageSize=100`);
+}
+
+export function getDailyStockDayCounts(month: string): Promise<DailyStockDayCount[]> {
+  return apiGet<DailyStockDayCount[]>(`/api/daily-inventory/days?month=${month}`);
+}
+
+export function saveDailyStock(input: DailyStockInput): Promise<DailyStock> {
+  return apiFetch<DailyStock>("/api/daily-inventory", { method: "PUT", body: JSON.stringify(input) });
+}
+
 export function updateReorderLevel(recordId: number, reorderLevel: number): Promise<WeeklyInventory> {
   return apiPatch<WeeklyInventory>(`/api/weekly-inventory/${recordId}`, { reorder_level: reorderLevel });
 }

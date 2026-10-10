@@ -55,3 +55,11 @@ export function UnusualInputNotice({ message }: { message: string }) {
     </div>
   );
 }
+
+export function ErrorBanner({ children }: { children: React.ReactNode }) {
+  return (
+    <div role="alert" className="rounded-md border border-red bg-red/5 p-4 text-sm text-red-dark">
+      {children}
+    </div>
+  );
+}

@@ -5,7 +5,7 @@ import { Plus } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
-import { ConfirmDeleteBanner } from "@/components/ui/Banner";
+import { ConfirmDeleteBanner, ErrorBanner } from "@/components/ui/Banner";
 import { Modal } from "@/components/ui/Modal";
 import { PoliciesTable } from "@/components/policies/PoliciesTable";
 import { PolicyForm } from "@/components/policies/PolicyForm";
@@ -65,9 +65,9 @@ export default function PoliciesView() {
       />
 
       {error ? (
-        <div role="alert" className="rounded-md border border-red bg-red/5 p-4 text-sm text-red-dark">
+        <ErrorBanner>
           Policies could not be loaded or saved. {(error as Error).message}
-        </div>
+        </ErrorBanner>
       ) : null}
 
       {panel?.mode === "delete" ? (

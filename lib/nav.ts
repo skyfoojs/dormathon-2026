@@ -1,6 +1,7 @@
 import {
   LayoutGrid,
   Boxes,
+  CalendarDays,
   LineChart,
   Truck,
   ScrollText,
@@ -17,13 +18,14 @@ export type NavItem = {
 // Day-to-day pages, shown at the top of the sidebar.
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutGrid },
+  { label: "Inventory", href: "/inventory", icon: CalendarDays },
   { label: "Predictions", href: "/predictions", icon: LineChart },
   { label: "Orders", href: "/orders", icon: Truck },
 ];
 
 // Setup and reference pages, pinned to the bottom of the sidebar.
 export const NAV_SECONDARY_ITEMS: NavItem[] = [
-  { label: "Inventory", href: "/inventory", icon: Boxes },
+  { label: "Items", href: "/items", icon: Boxes },
   { label: "Policies", href: "/policies", icon: ScrollText },
   { label: "Settings", href: "/settings", icon: SettingsIcon },
 ];

@@ -12,6 +12,7 @@ import { formatShortDate } from "@/lib/data/dates";
 import { getPurchaseOrderRows, type PurchaseOrderRow } from "@/lib/data/inventory";
 import { getPurchaseOrderDisplayStatus } from "@/lib/data/purchaseOrders";
 import { createTableColumnHelper } from "@/lib/table/features";
+import { ErrorBanner } from "@/components/ui/Banner";
 
 const ROWS_PER_PAGE = 8;
 
@@ -103,9 +104,9 @@ export function PurchaseOrdersDialog({
       }
     >
       {error ? (
-        <div className="rounded-md border border-red bg-red/5 p-4 text-sm text-red-dark">
+        <ErrorBanner>
           Could not load purchase orders: {(error as Error).message}
-        </div>
+        </ErrorBanner>
       ) : loading ? (
         <p className="text-sm text-muted">Loading purchase orders{"…"}</p>
       ) : (

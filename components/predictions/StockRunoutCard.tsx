@@ -9,6 +9,7 @@ import { StockRunoutChart } from "@/components/predictions/StockRunoutChart";
 import * as api from "@/lib/api/resources";
 import type { AiForecastLine, AlgorithmicForecastLine, ItemStockProjection } from "@/lib/api/resources";
 import { formatShortDate } from "@/lib/data/dates";
+import { ErrorBanner } from "@/components/ui/Banner";
 
 const LEGEND_ITEMS = [
   { label: "Actual stock", swatch: "border-t-2 border-green-text" },
@@ -113,9 +114,9 @@ export function StockRunoutCard() {
         </div>
 
         {projectionQuery.error ? (
-          <div className="rounded-md border border-red bg-red/5 p-4 text-sm text-red-dark">
+          <ErrorBanner>
             Could not load the projection: {(projectionQuery.error as Error).message}
-          </div>
+          </ErrorBanner>
         ) : !data ? (
           <p className="text-sm text-muted">Loading projection{"…"}</p>
         ) : (
