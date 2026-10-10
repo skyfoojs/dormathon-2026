@@ -1,4 +1,5 @@
-import type { DemandForecast, Item, PurchaseOrder, Report, ReportStatus, WeeklyInventory } from "@/lib/db/types";
+import type { DemandForecast, Item, PurchaseOrder, Report, ReportStatus } from "@/lib/db/types";
+import type { ItemStockStatus } from "@/lib/orders/restockPlan";
 
 export type PoDeliveredKpi = { delivered: number; total: number };
 
@@ -11,17 +12,13 @@ export function getPoDeliveredKpi(purchaseOrders: PurchaseOrder[]): PoDeliveredK
 
 export type ItemsWellStockedKpi = { wellStocked: number; total: number };
 
-// "Well stocked" = Low risk tier = 2 or more weeks of cover, over the
-// latest week on record for each tracked item.
-export function getItemsWellStockedKpi(weeklyInventory: WeeklyInventory[]): ItemsWellStockedKpi {
-  const latestByItem = new Map<number, WeeklyInventory>();
-  for (const row of [...weeklyInventory].sort((a, b) => a.week_start.localeCompare(b.week_start))) {
-    latestByItem.set(row.item_id, row);
-  }
-  const rows = [...latestByItem.values()];
+// "Well stocked" = the item's prediction does not reach its restock
+// threshold within the supplier lead time, the same rule that decides when
+// AiGIS raises an order (lib/orders/restockPlan.ts).
+export function getItemsWellStockedKpi(stockStatus: ItemStockStatus[]): ItemsWellStockedKpi {
   return {
-    wellStocked: rows.filter((r) => r.weeks_of_cover >= 2).length,
-    total: rows.length,
+    wellStocked: stockStatus.filter((s) => s.status === "well-stocked").length,
+    total: stockStatus.length,
   };
 }
 

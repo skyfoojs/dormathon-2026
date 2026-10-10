@@ -27,9 +27,10 @@ AiGIS is a hospital inventory tool for a single facility.
 3. **News is read.** WHO Disease Outbreak News is fetched and an LLM screens each article for relevance to medical supply or demand.
 4. **An AI council validates the news:** is it credible, how severe is it, and which item categories does it touch.
 5. **A second AI council adjusts the forecast.** It returns only a multiplier on the arithmetic usage curve (1.3 means 30% more) and how long the effect lasts. Code turns that into quantities and dates.
-6. **Purchase orders are raised.** An item whose projected stock reaches its reorder trigger within the supplier lead time gets a `Pending` order created by AiGIS. Lines for the same supplier share one order.
+6. **Purchase orders are raised** from those predicted values. An item whose predicted stock reaches its reorder trigger within the supplier lead time gets a `Pending` order created by AiGIS, for the predicted buy amount less the stock on hand. Lines for the same supplier share one order.
 7. **Staff manage orders** on the Orders page: edit, mark delivered, delete.
 8. **Accuracy is scored weekly** by comparing predicted usage with recorded usage, and shown on the dashboard.
+9. **The dashboard counts items well stocked** with the same rule that decides when an order is raised.
 
 ---
 
@@ -66,7 +67,7 @@ Math: `lib/forecast/demand.ts`. Orchestration: `lib/forecast/run.ts`. Stock proj
 | `POST /api/forecasts` | Runs and saves. |
 | Sync run with scope `full` | Runs and saves as the first pipeline stage. The scheduled `daily` trigger uses `full`. |
 | `GET /api/forecasts` | Computes live for every item. Saves nothing. |
-| Automated purchase orders | Computes live inside the restock plan. Saves nothing. |
+| Automated purchase orders, stock status | Read the latest saved run. An item with no saved run is computed live. Saves nothing. |
 
 ### 3.2 Constants
 
@@ -217,15 +218,33 @@ All calls go through OpenRouter, request JSON matching a schema, and are logged 
 ### 5.1 Automated creation
 
 Entry point: `POST /api/purchase-orders/automated`, body `{ "dry_run": boolean }` (optional, default false).
-Logic: `planRestockOrders` in `lib/orders/restockPlan.ts`. Writes: `lib/orders/automatedPurchaseOrders.ts`.
+Rules: `lib/orders/restockPlan.ts`. Inputs: `lib/queries/restockInputs.ts`. Writes: `lib/orders/automatedPurchaseOrders.ts`.
 
-For each item:
+Orders are raised from the predicted values the Predictions page shows. The order code reads predictions and never changes them.
+
+**Which prediction is used, per item**
+
+1. The latest saved `demand_forecasts` row, moved forward by the days since it was made so it starts from the latest recorded stock (the same shift `GET /api/forecasts/[id]` applies).
+2. If an `ai_forecasts` row exists for the item, the AI line: AI usage, AI threshold and AI buy quantity (section 4.5).
+3. Otherwise the arithmetic line: saved threshold and saved `buy_qty`.
+4. If the item has no saved run at all, the arithmetic forecast is computed live, which is what a run right now would save.
+
+An item's `reorder_level`, when set, is the threshold on either line.
+
+**Stock status**
+
+`assessStock` returns one status per item with stock history:
+
+- **Running low:** the predicted stock reaches the threshold within the lead time. Lead time is rounded up with a minimum of 1 day.
+- **Well stocked:** otherwise.
+
+**Planning rules, per item**
 
 1. **Skip** (`open-order`) if it already has a `Pending` or `In transit` order.
-2. Compute the arithmetic forecast and stock projection live. **Skip** (`no-history`) if there is no usable history.
-3. **Skip** (`above-threshold`) unless the projection reaches the threshold within the lead time. Lead time is rounded up with a minimum of 1 day.
-4. **Quantity** = `ceil(30 days of forecast usage − stock on hand)`. **Skip** (`enough-stock`) if zero or less.
-5. Record the line with its reasons: on hand, weekly forecast, recent usage, threshold, trigger date, lead days.
+2. **Skip** (`no-history`) if it has no stock history.
+3. **Skip** (`above-threshold`) unless it is running low.
+4. **Quantity** = `ceil(predicted buy quantity − stock on hand)`. **Skip** (`enough-stock`) if zero or less.
+5. Record the line with its reasons: prediction source (`ai` or `algorithmic`), on hand, buy quantity, threshold, trigger date, lead days.
 
 Then:
 
@@ -238,6 +257,17 @@ Then:
 The response lists the planned orders, the skipped items with reasons, and the created PO numbers.
 
 It is triggered from the "Sync now" button on the Predictions page.
+
+**Duplicate protection**
+
+Planning reads several tables and takes a moment, so two requests close together could both plan the same orders before either had saved them. Four guards cover this:
+
+1. The "Sync now" button is disabled while a request is in flight, and a second press is ignored.
+2. Within one server process, a real run that is still going is shared: a second request gets the first run's result and writes nothing.
+3. Just before writing, the planned items are checked again for open orders, and any item that now has one is dropped from the plan.
+4. A unique violation on the PO number is returned as `409 CONFLICT`.
+
+Once an order is saved, rule 1 of the planning rules stops any later run from ordering the same item again.
 
 ### 5.2 Reading and editing
 
@@ -272,6 +302,12 @@ Derived in the UI by `getPurchaseOrderDisplayStatus` in `lib/data/purchaseOrders
 - `In transit` orders are the arrivals in the stock projection.
 - `Delivered` orders set the measured lead time, which drives safety stock and the reorder point.
 - `Pending` and `In transit` orders block a new automated order for the same item.
+
+### 5.5 Stock status on the dashboard
+
+`GET /api/stock-status` returns the `assessStock` result from section 5.1: per item, `status` (`well-stocked` or `running-low`), `source`, `onHand`, `buyQty`, `threshold`, `triggerDate` and `leadDays`.
+
+The dashboard's "Items well stocked" card counts the items with status `well-stocked` out of all items assessed, so it agrees with the Predictions page and with what gets ordered. An item that is running low still counts as running low while its order is pending or in transit.
 
 ---
 
@@ -314,9 +350,9 @@ Computed in the dashboard by `buildOverallAccuracy`.
 6. The run is marked succeeded with `stock_as_of`.
 7. Hourly scheduled calls repeat steps 4 to 6 only.
 8. The Predictions page reads `GET /api/forecasts/[id]` per item and draws the arithmetic and AI run-down lines.
-9. "Sync now" calls `POST /api/purchase-orders/automated` (section 5.1).
+9. "Sync now" calls `POST /api/purchase-orders/automated`, which orders from those saved predictions (section 5.1).
 10. Staff move orders from Pending to In transit to Delivered on the Orders page. Deliveries change the next forecast's lead time and stock.
-11. The dashboard calls `GET /api/forecast-accuracy` and shows the scores (section 6).
+11. The dashboard calls `GET /api/forecast-accuracy` and shows the scores (section 6), and `GET /api/stock-status` for the well-stocked count (section 5.5).
 
 ---
 
@@ -328,15 +364,15 @@ Found while tracing the code. None have been confirmed by running it.
 | --- | --- | --- |
 | 1 | The Predictions page run list is mock data. "Sync now" adds a fake run in the browser and nothing in the UI calls `/api/sync-runs`. Only the purchase order call is real. | `components/providers/PredictionsProvider.tsx`, `lib/mock/` |
 | 2 | No scheduler is in the repo. There is no cron configuration and `CRON_SECRET` is missing from `.env.example`, so the hourly and daily triggers depend on something external. | `app/api/sync-runs/scheduled/route.ts` |
-| 3 | The AI adjustment does not affect purchase orders. The restock plan uses only the arithmetic forecast. The AI buy quantity is stored and displayed but never ordered from. | `lib/orders/restockPlan.ts` |
-| 4 | Automated order quantity ignores safety stock. The saved `buy_qty` is cover usage + safety stock, but the automated order is 30-day usage − stock on hand, and uses a fixed 30 days in place of the item's `cover_days`. | `lib/orders/restockPlan.ts` |
-| 5 | Stale comments say the restock trigger is "30% of supply". The code uses `reorder_level` or the reorder point. | `lib/orders/restockPlan.ts`, `lib/forecast/usage.ts` |
-| 6 | The `onOrder` subtraction in the restock plan is always 0, because items with open orders are skipped before it. | `lib/orders/restockPlan.ts` |
-| 7 | Likely accuracy bug. A reused AI row has a null multiplier and points at the same arithmetic forecast as the real cycle 2 row. The accuracy route keeps the newest AI row per forecast, so a later no-news sync appears to erase the multiplier and that week is scored as arithmetic only. | `app/api/forecast-accuracy/route.ts` |
-| 8 | `demand_forecasts.actual_qty` is filled by the forecast run but never read. Accuracy recomputes actuals from `daily_inventory`. | `lib/forecast/run.ts`, `lib/forecast/accuracy.ts` |
-| 9 | A saved run's weekly figure is `usage_per_day × 7`, which ignores the trend. The backtest for other weeks sums the 7-day curve. The two are not the same measure. | `lib/forecast/accuracy.ts` |
-| 10 | An older weekly forecast path still exists with no UI caller. It writes `demand_forecast_backtests`. | `app/api/demand-forecasts/route.ts`, `lib/forecast/holtWma.ts`, `lib/forecast/generateForecasts.ts` |
-| 11 | Only one news source has a fetcher registered. | `lib/ai/ingest.ts` |
+| 3 | `ai_forecasts.user_choice` and `decided_at` are never written or read. Automated orders always follow the AI line when one exists; staff cannot choose the arithmetic line. | `lib/orders/restockPlan.ts` |
+| 4 | Duplicate orders are still possible when two server instances handle requests at the same moment: the check before writing narrows the window but is not a lock. A partial unique index on `purchase_orders (item_id)` for open AiGIS orders would close it. | `lib/orders/automatedPurchaseOrders.ts` |
+| 5 | A stale comment says the restock trigger is "30% of supply". The code uses `reorder_level` or the reorder point. | `lib/forecast/usage.ts` |
+| 6 | Likely accuracy bug. A reused AI row has a null multiplier and points at the same arithmetic forecast as the real cycle 2 row. The accuracy route keeps the newest AI row per forecast, so a later no-news sync appears to erase the multiplier and that week is scored as arithmetic only. | `app/api/forecast-accuracy/route.ts` |
+| 7 | `demand_forecasts.actual_qty` is filled by the forecast run but never read. Accuracy recomputes actuals from `daily_inventory`. | `lib/forecast/run.ts`, `lib/forecast/accuracy.ts` |
+| 8 | A saved run's weekly figure is `usage_per_day × 7`, which ignores the trend. The backtest for other weeks sums the 7-day curve. The two are not the same measure. | `lib/forecast/accuracy.ts` |
+| 9 | An older weekly forecast path still exists with no UI caller. It writes `demand_forecast_backtests`. | `app/api/demand-forecasts/route.ts`, `lib/forecast/holtWma.ts`, `lib/forecast/generateForecasts.ts` |
+| 10 | Only one news source has a fetcher registered. | `lib/ai/ingest.ts` |
+| 11 | The Inventory page still shows cover and reorder level from `weekly_inventory`, which the predictions and the dashboard no longer use. | `lib/data/inventory.ts` |
 
 ---
 
@@ -350,6 +386,7 @@ Endpoints covered by this document.
 | `POST` | `/api/forecasts` | Run and save the arithmetic forecast. |
 | `GET` | `/api/forecasts/[id]` | One item's history, arithmetic line and AI line. |
 | `GET` | `/api/forecast-accuracy` | Weekly accuracy per item. |
+| `GET` | `/api/stock-status` | Well stocked or running low per item, from its prediction. |
 | `GET` | `/api/sync-runs` | List sync runs. |
 | `POST` | `/api/sync-runs` | Start a manual sync. Body: `{ "scope": "news" \| "full" }`. |
 | `GET` | `/api/sync-runs/[id]` | One sync run with its cost. |

@@ -36,6 +36,8 @@ export default function PredictionsView() {
   const autoOrderLines = autoOrders ? autoOrders.orders.reduce((sum, o) => sum + o.lines.length, 0) : 0;
 
   function handleSyncNow() {
+    // A second press while the first is still checking would ask twice.
+    if (autoOrdersMutation.isPending) return;
     syncNow();
     autoOrdersMutation.mutate();
   }
@@ -55,6 +57,7 @@ export default function PredictionsView() {
         selectedRunId={selectedRun.id}
         onSelect={selectRun}
         onSyncNow={handleSyncNow}
+        syncing={autoOrdersMutation.isPending}
         nextSyncClock="15:00"
         scoreLabel={isAi ? "risk" : "high tier"}
         getScore={(run) => (isAi ? run.riskScore : highTierCount)}

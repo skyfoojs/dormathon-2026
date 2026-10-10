@@ -99,9 +99,9 @@ function DashboardViewContent({
     queryKey: ["suppliers"],
     queryFn: api.getSuppliers,
   });
-  const weeklyInventoryQuery = useQuery({
-    queryKey: ["weekly-inventory", facilityId],
-    queryFn: () => api.getWeeklyInventory(facilityId),
+  const stockStatusQuery = useQuery({
+    queryKey: ["stock-status"],
+    queryFn: api.getStockStatus,
   });
   const liveHazeQuery = useQuery({
     queryKey: ["haze-live"],
@@ -118,7 +118,7 @@ function DashboardViewContent({
 
   const loading =
     itemsQuery.isLoading ||
-    weeklyInventoryQuery.isLoading ||
+    stockStatusQuery.isLoading ||
     poQuery.isLoading ||
     accuracyQuery.isLoading;
 
@@ -137,12 +137,11 @@ function DashboardViewContent({
   }
 
   const items = itemsQuery.data ?? [];
-  const weeklyInventory = weeklyInventoryQuery.data ?? [];
   const liveHaze = liveHazeQuery.data ?? null;
   const purchaseOrders = poQuery.data ?? [];
 
   const poDelivered = getPoDeliveredKpi(purchaseOrders);
-  const wellStocked = getItemsWellStockedKpi(weeklyInventory);
+  const wellStocked = getItemsWellStockedKpi(stockStatusQuery.data ?? []);
 
   const orders = groupOrderRows(
     getPurchaseOrderRows(

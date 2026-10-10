@@ -1,13 +1,8 @@
 import "server-only";
 import { getDb } from "@/lib/db";
-import { ServiceUnavailableError } from "@/lib/errors";
+import { ConflictError, ServiceUnavailableError } from "@/lib/errors";
 import { planRestockOrders, type PlannedOrder, type RestockPlan } from "@/lib/orders/restockPlan";
-import {
-  findDailyStockRows,
-  findForecastItems,
-  findForecastSuppliers,
-  findSupplyOrders,
-} from "@/lib/queries/forecastInputs";
+import { loadRestockInputs } from "@/lib/queries/restockInputs";
 
 export type AutomatedOrdersResult = RestockPlan & {
   dryRun: boolean;
@@ -15,42 +10,71 @@ export type AutomatedOrdersResult = RestockPlan & {
   createdPoIds: number[];
 };
 
+const OPEN_STATUSES = ["Pending", "In transit"];
+const UNIQUE_VIOLATION = "23505";
+
+// A real run that has not finished yet. A second request that arrives in the
+// meantime (a double press) is given this run's result instead of starting
+// its own, which would plan the same orders before the first had saved them.
+let activeRun: Promise<AutomatedOrdersResult> | null = null;
+
 // Works out which items need restocking and raises a purchase order for each
 // supplier involved, as "Pending" and created by AiGIS. With dryRun it
 // returns the same plan without writing anything.
 export async function runAutomatedPurchaseOrders(options: { dryRun: boolean }): Promise<AutomatedOrdersResult> {
-  const plan = await buildRestockPlan();
-  if (options.dryRun || plan.orders.length === 0) {
-    return { ...plan, dryRun: options.dryRun, createdPoIds: [] };
+  if (options.dryRun) {
+    return { ...(await buildRestockPlan()), dryRun: true, createdPoIds: [] };
+  }
+  if (!activeRun) {
+    activeRun = raisePlannedOrders().finally(() => {
+      activeRun = null;
+    });
+  }
+  return activeRun;
+}
+
+async function raisePlannedOrders(): Promise<AutomatedOrdersResult> {
+  const plan = await withoutItemsAlreadyOnOrder(await buildRestockPlan());
+  if (plan.orders.length === 0) {
+    return { ...plan, dryRun: false, createdPoIds: [] };
   }
   const createdPoIds = await insertPlannedOrders(plan.orders);
   return { ...plan, dryRun: false, createdPoIds };
 }
 
 async function buildRestockPlan(): Promise<RestockPlan> {
-  const [items, suppliers, dailyRows, supplyOrders] = await Promise.all([
-    findForecastItems(),
-    findForecastSuppliers(),
-    findDailyStockRows(),
-    findSupplyOrders(),
-  ]);
-  return planRestockOrders({
-    items,
-    suppliers,
-    dailyByItem: groupByItem(dailyRows),
-    ordersByItem: groupByItem(supplyOrders),
-    today: new Date().toISOString().slice(0, 10),
-  });
+  const inputs = await loadRestockInputs();
+  return planRestockOrders({ ...inputs, today: new Date().toISOString().slice(0, 10) });
 }
 
-function groupByItem<T extends { item_id: number }>(rows: T[]): Map<number, T[]> {
-  const groups = new Map<number, T[]>();
-  for (const row of rows) {
-    const list = groups.get(row.item_id);
-    if (list) list.push(row);
-    else groups.set(row.item_id, [row]);
-  }
-  return groups;
+// Planning takes a while, so another server may have raised orders since the
+// rows were read. This looks again just before writing and drops any line
+// whose item now has an open order.
+async function withoutItemsAlreadyOnOrder(plan: RestockPlan): Promise<RestockPlan> {
+  const plannedItemIds = plan.orders.flatMap((order) => order.lines.map((line) => line.itemId));
+  if (plannedItemIds.length === 0) return plan;
+  const onOrder = await findItemIdsOnOrder(plannedItemIds);
+  if (onOrder.size === 0) return plan;
+
+  const dropped: RestockPlan["skipped"] = plan.orders
+    .flatMap((order) => order.lines.filter((line) => onOrder.has(line.itemId)))
+    .map((line) => ({ itemId: line.itemId, itemName: line.itemName, reason: "open-order" }));
+  return {
+    orders: plan.orders
+      .map((order) => ({ ...order, lines: order.lines.filter((line) => !onOrder.has(line.itemId)) }))
+      .filter((order) => order.lines.length > 0),
+    skipped: [...plan.skipped, ...dropped],
+  };
+}
+
+async function findItemIdsOnOrder(itemIds: number[]): Promise<Set<number>> {
+  const { data, error } = await getDb()
+    .from("purchase_orders")
+    .select("item_id")
+    .in("item_id", itemIds)
+    .in("status", OPEN_STATUSES);
+  if (error) throw error;
+  return new Set((data ?? []).map((row) => row.item_id));
 }
 
 // Each line is one purchase_orders row. An order with several lines gets a
@@ -134,14 +158,18 @@ async function insertPoDocuments(
       })),
     )
     .select("po_doc_id, po_number");
-  if (error) throw error;
+  if (error) throw toInsertError(error);
   const docIdByNumber = new Map((data ?? []).map((d) => [d.po_number, d.po_doc_id]));
   return new Map(multiLine.map(({ anchorPoId }) => [anchorPoId, docIdByNumber.get(`PO-${anchorPoId}`) as number]));
 }
 
 // PGRST204 is PostgREST's "column not found". Here it means purchase_orders
-// has no created_by column yet, which is worth saying plainly.
+// has no created_by column yet, which is worth saying plainly. A unique
+// violation means another request took the same PO numbers first.
 function toInsertError(error: { code?: string; message?: string }): unknown {
+  if (error.code === UNIQUE_VIOLATION) {
+    return new ConflictError("Purchase orders are already being raised. Refresh to see them.");
+  }
   if (error.code === "PGRST204" && error.message?.includes("created_by")) {
     return new ServiceUnavailableError(
       "The purchase_orders table has no created_by column yet, so AiGIS orders cannot be saved.",
