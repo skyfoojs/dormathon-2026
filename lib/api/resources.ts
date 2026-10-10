@@ -8,7 +8,6 @@ import type {
   Supplier,
   WeeklyInventory,
 } from "@/lib/db/types";
-import type { WarningRecord } from "@/lib/data/warnings";
 
 export function getFacilities(): Promise<Facility[]> {
   return apiGet<Facility[]>("/api/facilities");
@@ -80,8 +79,4 @@ export type LiveHaze = {
 
 export function getLiveHaze(): Promise<LiveHaze> {
   return apiGet<LiveHaze>("/api/haze-live");
-}
-
-export function getWarnings(): Promise<WarningRecord[]> {
-  return apiGet<WarningRecord[]>("/api/warnings");
 }

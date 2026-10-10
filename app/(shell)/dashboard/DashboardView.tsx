@@ -5,11 +5,11 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { StockChartCard } from "@/components/dashboard/StockChartCard";
 import { ExternalSignalsCard } from "@/components/dashboard/ExternalSignalsCard";
-import { TopWarningsCard } from "@/components/dashboard/TopWarningsCard";
+import { OrdersInTransitCard } from "@/components/dashboard/OrdersInTransitCard";
 import { RecentRunsCard } from "@/components/dashboard/RecentRunsCard";
 import { useFacility } from "@/components/providers/FacilityProvider";
-import { useWarnings } from "@/components/providers/WarningsProvider";
 import * as api from "@/lib/api/resources";
+import { getPurchaseOrderRows } from "@/lib/data/inventory";
 import {
   getExternalSignals,
   getHazeKpi,
@@ -28,9 +28,8 @@ export default function DashboardView() {
 }
 
 function DashboardViewContent({ facilityId }: { facilityId: number }) {
-  const { openWarnings } = useWarnings();
-
   const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
+  const suppliersQuery = useQuery({ queryKey: ["suppliers"], queryFn: api.getSuppliers });
   const weeklyInventoryQuery = useQuery({
     queryKey: ["weekly-inventory", facilityId],
     queryFn: () => api.getWeeklyInventory(facilityId),
@@ -54,8 +53,7 @@ function DashboardViewContent({ facilityId }: { facilityId: number }) {
   const hasData = weeklyInventory.length > 0;
   const loading = itemsQuery.isLoading || weeklyInventoryQuery.isLoading || poQuery.isLoading;
 
-  const facilityWarnings = openWarnings.filter((w) => w.facilityId === facilityId);
-  const highCount = facilityWarnings.filter((w) => w.severity === "high").length;
+  const poRows = getPurchaseOrderRows(facilityId, purchaseOrders, items, suppliersQuery.data ?? []);
 
   const haze = hasData ? getHazeKpi(hazeRows) : null;
   const lowestCover = hasData ? getLowestCoverKpi(weeklyInventory, items) : null;
@@ -92,19 +90,6 @@ function DashboardViewContent({ facilityId }: { facilityId: number }) {
               provenance="database"
               value={haze ? String(haze.apiAvg) : "—"}
               sub={haze ? `${haze.category} this week` : "No readings for this facility."}
-            />
-            <KpiCard
-              label="Open warnings"
-              provenance="model-output"
-              value={hasData ? String(facilityWarnings.length) : "—"}
-              valueTone={highCount > 0 ? "red" : "default"}
-              sub={
-                hasData
-                  ? highCount > 0
-                    ? `${highCount} high severity`
-                    : "No high-severity warnings"
-                  : "No data for this facility."
-              }
             />
             <KpiCard
               label="Lowest cover, critical item"
@@ -144,7 +129,7 @@ function DashboardViewContent({ facilityId }: { facilityId: number }) {
           </div>
 
           <div className="flex flex-wrap items-stretch gap-5">
-            <TopWarningsCard warnings={facilityWarnings} totalOpenCount={facilityWarnings.length} />
+            <OrdersInTransitCard rows={poRows} />
             <RecentRunsCard runs={runs} />
           </div>
         </>

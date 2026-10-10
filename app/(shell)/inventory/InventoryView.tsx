@@ -9,24 +9,19 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { SavedBanner, ConfirmDeleteBanner } from "@/components/ui/Banner";
 import { ItemForm } from "@/components/inventory/ItemForm";
-import { PurchaseOrderForm } from "@/components/inventory/PurchaseOrderForm";
 import { SupplierForm } from "@/components/inventory/SupplierForm";
 import { ItemsTable } from "@/components/inventory/ItemsTable";
-import { PurchaseOrdersTable } from "@/components/inventory/PurchaseOrdersTable";
 import { SuppliersTable } from "@/components/inventory/SuppliersTable";
 import { useFacility } from "@/components/providers/FacilityProvider";
-import { getItemRows, getPurchaseOrderRows, getSupplierRows } from "@/lib/data/inventory";
-import type { ItemFormValues, PurchaseOrderFormValues, SupplierFormValues } from "@/lib/validation/inventory";
+import { getItemRows, getSupplierRows } from "@/lib/data/inventory";
+import type { ItemFormValues, SupplierFormValues } from "@/lib/validation/inventory";
 import * as api from "@/lib/api/resources";
-import type { Item, PurchaseOrder, Supplier } from "@/lib/db/types";
+import type { Item, Supplier } from "@/lib/db/types";
 
 type Panel =
   | { kind: "item"; mode: "add" }
   | { kind: "item"; mode: "edit"; id: number }
   | { kind: "item"; mode: "delete"; id: number }
-  | { kind: "po"; mode: "add" }
-  | { kind: "po"; mode: "edit"; id: number }
-  | { kind: "po"; mode: "delete"; id: number }
   | { kind: "supplier"; mode: "add" }
   | { kind: "supplier"; mode: "edit"; id: number }
   | { kind: "supplier"; mode: "delete"; id: number };
@@ -66,7 +61,6 @@ function InventoryViewContent({ facilityId }: { facilityId: number }) {
 
   const invalidateItems = () => qc.invalidateQueries({ queryKey: ["items"] });
   const invalidateSuppliers = () => qc.invalidateQueries({ queryKey: ["suppliers"] });
-  const invalidatePOs = () => qc.invalidateQueries({ queryKey: ["purchase-orders", facilityId] });
   const invalidateWeekly = () => qc.invalidateQueries({ queryKey: ["weekly-inventory", facilityId] });
 
   const createItemMutation = useMutation({
@@ -93,26 +87,6 @@ function InventoryViewContent({ facilityId }: { facilityId: number }) {
     onSuccess: invalidateWeekly,
   });
 
-  const createPoMutation = useMutation({
-    mutationFn: (input: Omit<PurchaseOrder, "po_id">) => api.createPurchaseOrder(input),
-    onSuccess: () => {
-      invalidatePOs();
-      saved();
-    },
-  });
-  const updatePoMutation = useMutation({
-    mutationFn: ({ id, input }: { id: number; input: Omit<PurchaseOrder, "po_id"> }) =>
-      api.updatePurchaseOrder(id, input),
-    onSuccess: () => {
-      invalidatePOs();
-      saved();
-    },
-  });
-  const deletePoMutation = useMutation({
-    mutationFn: (id: number) => api.deletePurchaseOrder(id),
-    onSuccess: invalidatePOs,
-  });
-
   const createSupplierMutation = useMutation({
     mutationFn: (input: Omit<Supplier, "supplier_id">) => api.createSupplier(input),
     onSuccess: () => {
@@ -137,7 +111,6 @@ function InventoryViewContent({ facilityId }: { facilityId: number }) {
   const filteredItemRows = itemRows.filter((r) =>
     r.item.item_name.toLowerCase().includes(search.toLowerCase()),
   );
-  const poRows = getPurchaseOrderRows(facilityId, purchaseOrders, items, suppliers);
   const supplierRows = getSupplierRows(facilityId, suppliers, items, purchaseOrders);
 
   function handleItemSubmit(values: ItemFormValues) {
@@ -151,26 +124,6 @@ function InventoryViewContent({ facilityId }: { facilityId: number }) {
       }
     } else {
       createItemMutation.mutate(itemData);
-    }
-  }
-
-  function handlePoSubmit(values: PurchaseOrderFormValues) {
-    const poData = {
-      facility_id: facilityId,
-      item_id: values.item_id,
-      supplier_id: values.supplier_id,
-      order_date: values.order_date,
-      qty_ordered: values.qty_ordered,
-      unit_cost_myr: values.unit_cost_myr,
-      expected_receipt_date: values.expected_receipt_date,
-      status: values.status,
-      actual_receipt_date: values.status === "Delivered" ? (values.actual_receipt_date ?? null) : null,
-      qty_received: values.status === "Delivered" ? (values.qty_received ?? null) : null,
-    };
-    if (panel?.kind === "po" && panel.mode === "edit") {
-      updatePoMutation.mutate({ id: panel.id, input: poData });
-    } else {
-      createPoMutation.mutate(poData);
     }
   }
 
@@ -191,7 +144,6 @@ function InventoryViewContent({ facilityId }: { facilityId: number }) {
   function handleDeleteConfirm() {
     if (!panel || panel.mode !== "delete") return;
     if (panel.kind === "item") deleteItemMutation.mutate(panel.id);
-    if (panel.kind === "po") deletePoMutation.mutate(panel.id);
     if (panel.kind === "supplier") deleteSupplierMutation.mutate(panel.id);
     setPanel(null);
   }
@@ -202,7 +154,7 @@ function InventoryViewContent({ facilityId }: { facilityId: number }) {
     <>
       <PageHeader
         title="Inventory"
-        subtitle="Items, purchase orders and suppliers for this facility."
+        subtitle="Items and suppliers for this facility. Purchase orders are on the Orders page."
       />
 
       {loadError ? (
@@ -236,19 +188,6 @@ function InventoryViewContent({ facilityId }: { facilityId: number }) {
         />
       ) : null}
 
-      {panel?.kind === "po" && panel.mode !== "delete" ? (
-        <PurchaseOrderForm
-          mode={panel.mode}
-          po={panel.mode === "edit" ? purchaseOrders.find((p) => p.po_id === panel.id) : undefined}
-          facilityId={facilityId}
-          items={items}
-          suppliers={suppliers}
-          weeklyInventory={weeklyInventory}
-          onCancel={() => setPanel(null)}
-          onSubmit={handlePoSubmit}
-        />
-      ) : null}
-
       {panel?.kind === "supplier" && panel.mode !== "delete" ? (
         <SupplierForm
           mode={panel.mode}
@@ -262,63 +201,44 @@ function InventoryViewContent({ facilityId }: { facilityId: number }) {
 
       <Tabs defaultValue="items" className="flex flex-col gap-5">
         <TabsList aria-label="Inventory views">
-          <TabsTrigger value="items">Inventory and purchase orders</TabsTrigger>
+          <TabsTrigger value="items">Items</TabsTrigger>
           <TabsTrigger value="suppliers">Suppliers</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="items" className="flex flex-col gap-8">
-          <section className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="item-search" className="sr-only">
-                  Search items
-                </Label>
-                <div className="relative">
-                  <Search
-                    size={16}
-                    className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted"
-                    aria-hidden="true"
-                  />
-                  <Input
-                    id="item-search"
-                    placeholder="Search items by name"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-64 pl-9"
-                  />
-                </div>
+        <TabsContent value="items" className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="item-search" className="sr-only">
+                Search items
+              </Label>
+              <div className="relative">
+                <Search
+                  size={16}
+                  className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted"
+                  aria-hidden="true"
+                />
+                <Input
+                  id="item-search"
+                  placeholder="Search items by name"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-64 pl-9"
+                />
               </div>
-              <Button variant="primary" onClick={() => setPanel({ kind: "item", mode: "add" })}>
-                Add item
-              </Button>
             </div>
-            <ItemsTable
-              rows={filteredItemRows}
-              onEdit={(r) => setPanel({ kind: "item", mode: "edit", id: r.item.item_id })}
-              onDelete={(r) => setPanel({ kind: "item", mode: "delete", id: r.item.item_id })}
-            />
-            <p className="text-xs text-muted">
-              On-hand is the latest closing stock. Cover is on-hand divided by
-              mean weekly issue over the last 6 weeks.
-            </p>
-          </section>
-
-          <section className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">Purchase orders</h2>
-              <Button variant="primary" onClick={() => setPanel({ kind: "po", mode: "add" })}>
-                Add purchase order
-              </Button>
-            </div>
-            <PurchaseOrdersTable
-              rows={poRows}
-              onEdit={(r) => setPanel({ kind: "po", mode: "edit", id: r.po.po_id })}
-              onDelete={(r) => setPanel({ kind: "po", mode: "delete", id: r.po.po_id })}
-            />
-            <p className="text-xs text-muted">
-              Orders in the database count as incoming stock in every forecast.
-            </p>
-          </section>
+            <Button variant="primary" onClick={() => setPanel({ kind: "item", mode: "add" })}>
+              Add item
+            </Button>
+          </div>
+          <ItemsTable
+            rows={filteredItemRows}
+            onEdit={(r) => setPanel({ kind: "item", mode: "edit", id: r.item.item_id })}
+            onDelete={(r) => setPanel({ kind: "item", mode: "delete", id: r.item.item_id })}
+          />
+          <p className="text-xs text-muted">
+            On-hand is the latest closing stock. Cover is on-hand divided by
+            mean weekly issue over the last 6 weeks.
+          </p>
         </TabsContent>
 
         <TabsContent value="suppliers" className="flex flex-col gap-3">
@@ -346,9 +266,6 @@ function deleteLabel(
 ): string {
   if (panel.kind === "item") {
     return itemRows.find((r) => r.item.item_id === panel.id)?.item.item_name ?? "this item";
-  }
-  if (panel.kind === "po") {
-    return `PO-${panel.id}`;
   }
   return supplierRows.find((r) => r.supplier.supplier_id === panel.id)?.supplier.supplier_name ?? "this supplier";
 }

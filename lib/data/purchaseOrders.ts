@@ -1,8 +1,8 @@
 import type { PurchaseOrder } from "@/lib/db/types";
-import { daysFromToday, formatDueLabel } from "@/lib/data/dates";
+import { daysFromToday, formatDueLabel, formatShortDate } from "@/lib/data/dates";
 
 export type PurchaseOrderDisplayStatus =
-  | "Open"
+  | "On the way"
   | "Due today"
   | "Delayed"
   | "Received"
@@ -13,7 +13,12 @@ export function getPurchaseOrderDisplayStatus(po: PurchaseOrder): {
   note: string;
 } {
   if (po.status === "Delivered") {
-    return { label: "Received", note: po.actual_receipt_date ?? "" };
+    const short = po.qty_received !== null ? po.qty_ordered - po.qty_received : 0;
+    const parts = [
+      po.actual_receipt_date ? `On ${formatShortDate(po.actual_receipt_date)}` : null,
+      short > 0 ? `${short} short` : null,
+    ].filter(Boolean);
+    return { label: "Received", note: parts.join(", ") };
   }
   if (po.status === "Cancelled") {
     return { label: "Cancelled", note: "" };
@@ -27,9 +32,9 @@ export function getPurchaseOrderDisplayStatus(po: PurchaseOrder): {
     };
   }
   if (days === 0) {
-    return { label: "Due today", note: "Due today" };
+    return { label: "Due today", note: "" };
   }
-  return { label: "Open", note: formatDueLabel(po.expected_receipt_date) };
+  return { label: "On the way", note: formatDueLabel(po.expected_receipt_date) };
 }
 
 export function isPurchaseOrderDelayed(po: PurchaseOrder): boolean {
