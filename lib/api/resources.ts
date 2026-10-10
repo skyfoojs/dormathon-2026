@@ -13,7 +13,7 @@ import type {
   WeeklyInventory,
 } from "@/lib/db/types";
 import type { ItemAccuracy } from "@/lib/forecast/accuracy";
-import type { StockProjection } from "@/lib/forecast/runout";
+import type { RestockTrigger, StockPoint } from "@/lib/forecast/runout";
 import type { AutomatedOrdersResult } from "@/lib/orders/automatedPurchaseOrders";
 
 export function getFacilities(): Promise<Facility[]> {
@@ -101,11 +101,42 @@ export function updateReorderLevel(recordId: number, reorderLevel: number): Prom
   return apiPatch<WeeklyInventory>(`/api/weekly-inventory/${recordId}`, { reorder_level: reorderLevel });
 }
 
-export type ItemStockProjection = StockProjection & {
+type ForecastLine = {
+  usagePerDay: number;
+  weeklyForecastQty: number;
+  buyQty: number | null;
+  projection: StockPoint[];
+  arrivals: { date: string; qty: number }[];
+  threshold: number;
+  trigger: RestockTrigger | null;
+  stockoutDate: string | null;
+};
+
+export type AlgorithmicForecastLine = ForecastLine & {
+  forecastId: number;
+  madeAt: string;
+  coverDays: number;
+  safetyStock: number;
+};
+
+export type AiForecastLine = ForecastLine & {
+  aiForecastId: number;
+  syncRunId: number;
+  reused: boolean;
+  usageMultiplier: number;
+  fadeDays: number | null;
+  confidence: number | null;
+  reasoning: string | null;
+};
+
+export type ItemStockProjection = {
   itemId: number;
   itemName: string;
   unit: string;
-  weeklyForecastQty: number;
+  thresholdSource: "reorder_point" | "reorder_level";
+  history: StockPoint[];
+  algorithmic: AlgorithmicForecastLine | null;
+  ai: AiForecastLine | null;
 };
 
 export function getStockProjection(itemId: number): Promise<ItemStockProjection> {

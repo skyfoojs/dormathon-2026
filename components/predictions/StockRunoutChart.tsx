@@ -13,12 +13,19 @@ import {
 } from "recharts";
 import type { ItemStockProjection } from "@/lib/api/resources";
 import { formatShortDate } from "@/lib/data/dates";
+import type { RestockTrigger, StockPoint } from "@/lib/forecast/runout";
 
-type ChartPoint = { ts: number; actual?: number; projected?: number };
+type ChartPoint = { ts: number; actual?: number; algorithmic?: number; ai?: number };
+type ForecastKey = "algorithmic" | "ai";
 
 const AXIS_TICK = { fontSize: 11, fontFamily: "var(--font-mono)", fill: "var(--color-muted)" };
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const LABEL_FONT = { fontSize: 11.5, fontFamily: "var(--font-mono)" };
+
+const LINE_STYLE: Record<ForecastKey, { name: string; color: string; restockLabel: string }> = {
+  algorithmic: { name: "Algorithmic forecast", color: "var(--color-blue-light)", restockLabel: "Restock" },
+  ai: { name: "AI forecast", color: "var(--color-amber-border)", restockLabel: "AI restock" },
+};
 
 function toTs(isoDate: string): number {
   return Date.parse(`${isoDate}T00:00:00Z`);
@@ -30,22 +37,29 @@ function tsLabel(ts: number): string {
 
 function buildChartPoints(data: ItemStockProjection): ChartPoint[] {
   const byTs = new Map<number, ChartPoint>();
-  for (const p of data.history) byTs.set(toTs(p.date), { ts: toTs(p.date), actual: p.stock });
-  for (const p of data.projection) {
-    const ts = toTs(p.date);
-    byTs.set(ts, { ...(byTs.get(ts) ?? { ts }), projected: Math.round(p.stock) });
-  }
+  const add = (points: StockPoint[], key: keyof Omit<ChartPoint, "ts">) => {
+    for (const p of points) {
+      const ts = toTs(p.date);
+      byTs.set(ts, { ...(byTs.get(ts) ?? { ts }), [key]: Math.round(p.stock) });
+    }
+  };
+  add(data.history, "actual");
+  if (data.algorithmic) add(data.algorithmic.projection, "algorithmic");
+  if (data.ai) add(data.ai.projection, "ai");
   return [...byTs.values()].sort((a, b) => a.ts - b.ts);
+}
+
+function triggerStock(projection: StockPoint[], trigger: RestockTrigger, threshold: number): number {
+  return Math.round(projection.find((p) => p.date === trigger.date)?.stock ?? threshold);
 }
 
 export function StockRunoutChart({ data }: { data: ItemStockProjection }) {
   const points = buildChartPoints(data);
   const lastActual = data.history[data.history.length - 1];
-  const threshold = Math.round(data.threshold);
-  const trigger = data.trigger;
-  const triggerStock = trigger
-    ? Math.round(data.projection.find((p) => p.date === trigger.date)?.stock ?? data.threshold)
-    : null;
+  const lines = (["algorithmic", "ai"] as const).flatMap((key) => {
+    const line = data[key];
+    return line ? [{ key, line, style: LINE_STYLE[key] }] : [];
+  });
   const summary = buildSummary(data);
   const weeklyTicks: number[] = [];
   for (let ts = points[0].ts; ts <= points[points.length - 1].ts; ts += WEEK_MS) weeklyTicks.push(ts);
@@ -78,36 +92,43 @@ export function StockRunoutChart({ data }: { data: ItemStockProjection }) {
                 fontSize: 12.5,
               }}
             />
-            <ReferenceLine
-              y={threshold}
-              stroke="var(--color-violet-text)"
-              strokeWidth={1.5}
-              label={{
-                value: threshold.toLocaleString(),
-                position: "right",
-                fill: "var(--color-violet-text)",
-                ...LABEL_FONT,
-              }}
-            />
+            {lines.map(({ key, line, style }) => (
+              <ReferenceLine
+                key={`threshold-${key}`}
+                y={Math.round(line.threshold)}
+                stroke={key === "algorithmic" ? "var(--color-violet-text)" : style.color}
+                strokeWidth={1.5}
+                strokeDasharray={key === "algorithmic" ? undefined : "3 3"}
+                label={{
+                  value: Math.round(line.threshold).toLocaleString(),
+                  position: "right",
+                  fill: key === "algorithmic" ? "var(--color-violet-text)" : "var(--color-amber-text)",
+                  ...LABEL_FONT,
+                }}
+              />
+            ))}
             <ReferenceLine
               x={toTs(lastActual.date)}
               stroke="var(--color-line-strong)"
               strokeDasharray="4 4"
               label={{ value: "Last count", position: "top", fill: "var(--color-muted)", ...LABEL_FONT }}
             />
-            {trigger && !trigger.alreadyReached ? (
-              <ReferenceLine
-                x={toTs(trigger.date)}
-                stroke="var(--color-violet-text)"
-                strokeDasharray="4 4"
-                label={{
-                  value: `Restock ${formatShortDate(trigger.date)}`,
-                  position: "top",
-                  fill: "var(--color-violet-text)",
-                  ...LABEL_FONT,
-                }}
-              />
-            ) : null}
+            {lines.map(({ key, line, style }) =>
+              line.trigger && !line.trigger.alreadyReached ? (
+                <ReferenceLine
+                  key={`restock-${key}`}
+                  x={toTs(line.trigger.date)}
+                  stroke={style.color}
+                  strokeDasharray="4 4"
+                  label={{
+                    value: `${style.restockLabel} ${formatShortDate(line.trigger.date)}`,
+                    position: key === "algorithmic" ? "top" : "insideTopRight",
+                    fill: key === "algorithmic" ? "var(--color-violet-text)" : "var(--color-amber-text)",
+                    ...LABEL_FONT,
+                  }}
+                />
+              ) : null,
+            )}
             <Line
               type="linear"
               dataKey="actual"
@@ -117,26 +138,32 @@ export function StockRunoutChart({ data }: { data: ItemStockProjection }) {
               dot={false}
               isAnimationActive={false}
             />
-            <Line
-              type="linear"
-              dataKey="projected"
-              name="Projected stock"
-              stroke="var(--color-blue-light)"
-              strokeWidth={2.5}
-              strokeDasharray="7 5"
-              dot={false}
-              isAnimationActive={false}
-            />
-            {trigger && triggerStock !== null ? (
-              <ReferenceDot
-                x={toTs(trigger.date)}
-                y={triggerStock}
-                r={6}
-                fill="var(--color-violet-text)"
-                stroke="var(--color-card)"
-                strokeWidth={2}
+            {lines.map(({ key, style }) => (
+              <Line
+                key={`line-${key}`}
+                type="linear"
+                dataKey={key}
+                name={style.name}
+                stroke={style.color}
+                strokeWidth={2.5}
+                strokeDasharray="7 5"
+                dot={false}
+                isAnimationActive={false}
               />
-            ) : null}
+            ))}
+            {lines.map(({ key, line, style }) =>
+              line.trigger ? (
+                <ReferenceDot
+                  key={`dot-${key}`}
+                  x={toTs(line.trigger.date)}
+                  y={triggerStock(line.projection, line.trigger, line.threshold)}
+                  r={6}
+                  fill={key === "algorithmic" ? "var(--color-violet-text)" : style.color}
+                  stroke="var(--color-card)"
+                  strokeWidth={2}
+                />
+              ) : null,
+            )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -145,17 +172,22 @@ export function StockRunoutChart({ data }: { data: ItemStockProjection }) {
   );
 }
 
+function describeLine(label: string, line: NonNullable<ItemStockProjection[ForecastKey]>): string {
+  const trigger = line.trigger;
+  const triggerText = !trigger
+    ? "does not reach its restock trigger in the next 12 weeks"
+    : trigger.alreadyReached
+      ? "is already at or below its restock trigger"
+      : `reaches its restock trigger on ${formatShortDate(trigger.date)}, ${trigger.daysFromLastActual} days after the last count`;
+  return `The ${label} falls by about ${Math.round(line.weeklyForecastQty).toLocaleString()} a week and ${triggerText}.`;
+}
+
 function buildSummary(data: ItemStockProjection): string {
   const last = data.history[data.history.length - 1];
-  const trigger = data.trigger;
-  const triggerText = !trigger
-    ? "The projection does not reach the restock trigger in the next 12 weeks."
-    : trigger.alreadyReached
-      ? "Stock is already at or below the restock trigger."
-      : `The projection reaches the restock trigger on ${formatShortDate(trigger.date)}, ${trigger.daysFromLastActual} days after the last count.`;
-  return (
-    `Stock for ${data.itemName}: ${last.stock.toLocaleString()} ${data.unit} at the last count on ` +
-    `${formatShortDate(last.date)}, projected to fall by about ${Math.round(data.weeklyForecastQty).toLocaleString()} a week. ` +
-    `The restock trigger is ${Math.round(data.threshold).toLocaleString()}. ${triggerText}`
-  );
+  const parts = [
+    `Stock for ${data.itemName}: ${last.stock.toLocaleString()} ${data.unit} at the last count on ${formatShortDate(last.date)}.`,
+    data.algorithmic ? describeLine("algorithmic forecast", data.algorithmic) : "No algorithmic forecast yet.",
+    data.ai ? describeLine("AI forecast", data.ai) : "No AI forecast yet.",
+  ];
+  return parts.join(" ");
 }

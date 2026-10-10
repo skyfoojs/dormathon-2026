@@ -7,40 +7,52 @@ import { Label, Select } from "@/components/ui/Input";
 import { ProvenanceTag, Tag, type TagTone } from "@/components/ui/Tag";
 import { StockRunoutChart } from "@/components/predictions/StockRunoutChart";
 import * as api from "@/lib/api/resources";
-import type { ItemStockProjection } from "@/lib/api/resources";
+import type { AiForecastLine, AlgorithmicForecastLine, ItemStockProjection } from "@/lib/api/resources";
 import { formatShortDate } from "@/lib/data/dates";
-import { RESTOCK_TRIGGER_SHARE } from "@/lib/forecast/runout";
 
 const LEGEND_ITEMS = [
   { label: "Actual stock", swatch: "border-t-2 border-green-text" },
-  { label: "Projected stock", swatch: "border-t-2 border-dashed border-blue-light" },
+  { label: "Algorithmic forecast", swatch: "border-t-2 border-dashed border-blue-light" },
+  { label: "AI forecast", swatch: "border-t-2 border-dashed border-amber-border" },
   { label: "Restock trigger", swatch: "border-t-2 border-violet-text" },
 ];
 
-const TRIGGER_PERCENT = Math.round(RESTOCK_TRIGGER_SHARE * 100);
+const THRESHOLD_LABEL: Record<ItemStockProjection["thresholdSource"], string> = {
+  reorder_level: "Reorder level (set)",
+  reorder_point: "Reorder point",
+};
 
-function getStatus(data: ItemStockProjection): { tone: TagTone; label: string; detail: string } {
-  const trigger = data.trigger;
+type Status = { tone: TagTone; label: string; detail: string };
+
+function getStatus(name: string, line: AlgorithmicForecastLine | AiForecastLine, unit: string): Status {
+  const trigger = line.trigger;
   if (!trigger) {
     return {
       tone: "green",
-      label: "No restock needed yet",
-      detail: `Projected stock stays above ${TRIGGER_PERCENT}% of supply for the next 12 weeks.`,
+      label: `${name}: no restock needed yet`,
+      detail: "Projected stock stays above the restock trigger for the next 12 weeks.",
     };
   }
   if (trigger.alreadyReached) {
-    return {
-      tone: "red",
-      label: "Restock now",
-      detail: `Stock is already at or below ${TRIGGER_PERCENT}% of supply.`,
-    };
+    return { tone: "red", label: `${name}: restock now`, detail: "Stock is already at or below the restock trigger." };
   }
   const days = trigger.daysFromLastActual;
   return {
     tone: "amber",
-    label: `Restock by ${formatShortDate(trigger.date)}`,
-    detail: `${days} day${days === 1 ? "" : "s"} after the last count, once about ${Math.round(trigger.demandUntilTrigger).toLocaleString()} ${data.unit} more are used.`,
+    label: `${name}: restock by ${formatShortDate(trigger.date)}`,
+    detail: `${days} day${days === 1 ? "" : "s"} after the last count, once about ${Math.round(trigger.demandUntilTrigger).toLocaleString()} ${unit} more are used.`,
   };
+}
+
+function getStatuses(data: ItemStockProjection): Status[] {
+  const statuses: Status[] = [];
+  if (data.algorithmic) statuses.push(getStatus("Algorithmic", data.algorithmic, data.unit));
+  if (data.ai) statuses.push(getStatus("AI", data.ai, data.unit));
+  return statuses;
+}
+
+function formatQty(value: number | null | undefined, unit: string): string {
+  return value === null || value === undefined ? "None" : `${Math.round(value).toLocaleString()} ${unit}`;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -64,8 +76,10 @@ export function StockRunoutCard() {
     enabled: itemId !== null,
   });
   const data = projectionQuery.data;
-  const status = data ? getStatus(data) : null;
-  const incomingQty = data ? data.arrivals.reduce((sum, a) => sum + a.qty, 0) : 0;
+  const statuses = data ? getStatuses(data) : [];
+  const arrivals = data?.algorithmic?.arrivals ?? data?.ai?.arrivals ?? [];
+  const incomingQty = arrivals.reduce((sum, a) => sum + a.qty, 0);
+  const threshold = data?.algorithmic?.threshold ?? data?.ai?.threshold ?? null;
 
   return (
     <Card className="flex flex-col gap-4 p-6">
@@ -102,40 +116,63 @@ export function StockRunoutCard() {
           <div className="rounded-md border border-red bg-red/5 p-4 text-sm text-red-dark">
             Could not load the projection: {(projectionQuery.error as Error).message}
           </div>
-        ) : !data || !status ? (
+        ) : !data ? (
           <p className="text-sm text-muted">Loading projection{"…"}</p>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-3">
-              <Tag tone={status.tone}>{status.label}</Tag>
-              <span className="text-sm text-strong-muted">{status.detail}</span>
-            </div>
+            {statuses.length === 0 ? (
+              <p className="text-sm text-muted">No forecast yet. Showing actual stock only.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {statuses.map((status) => (
+                  <li key={status.label} className="flex flex-wrap items-center gap-3">
+                    <Tag tone={status.tone}>{status.label}</Tag>
+                    <span className="text-sm text-strong-muted">{status.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
 
             <StockRunoutChart data={data} />
 
-            <dl className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <dl className="grid grid-cols-2 gap-4 lg:grid-cols-3">
               <Stat
                 label="Last count"
                 value={`${data.history[data.history.length - 1].stock.toLocaleString()} ${data.unit}`}
               />
-              <Stat label="Forecast demand" value={`${Math.round(data.weeklyForecastQty).toLocaleString()} / week`} />
               <Stat
-                label={`Trigger (${TRIGGER_PERCENT}% of ${data.supplyLevel.toLocaleString()})`}
-                value={Math.round(data.threshold).toLocaleString()}
+                label="Algorithmic demand"
+                value={data.algorithmic ? `${Math.round(data.algorithmic.weeklyForecastQty).toLocaleString()} / week` : "None"}
               />
               <Stat
-                label="Orders arriving"
-                value={data.arrivals.length ? `${incomingQty.toLocaleString()} ${data.unit}` : "None"}
+                label={data.ai ? `AI demand (x${data.ai.usageMultiplier})` : "AI demand"}
+                value={data.ai ? `${Math.round(data.ai.weeklyForecastQty).toLocaleString()} / week` : "None"}
               />
+              <Stat
+                label={THRESHOLD_LABEL[data.thresholdSource]}
+                value={threshold === null ? "None" : Math.round(threshold).toLocaleString()}
+              />
+              <Stat label="Buy amount (algorithmic)" value={formatQty(data.algorithmic?.buyQty, data.unit)} />
+              <Stat label="Buy amount (AI)" value={formatQty(data.ai?.buyQty, data.unit)} />
+              <Stat label="Orders arriving" value={arrivals.length ? `${incomingQty.toLocaleString()} ${data.unit}` : "None"} />
             </dl>
+
+            {data.ai?.reasoning ? (
+              <p className="text-sm text-strong-muted">
+                <span className="font-medium">AI reasoning: </span>
+                {data.ai.reasoning}
+              </p>
+            ) : null}
 
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
               <ProvenanceTag kind="database" />
               <ProvenanceTag kind="model-output" />
               <span>
-                Projected stock falls by the Holt and weighted-average demand forecast, held flat, and rises when an
-                order in transit reaches its expected date. Actual stock is the daily closing count. Supply is the highest
-                daily stock in the last 12 weeks.
+                Algorithmic forecast: daily Holt and weighted-average usage, with a fading trend. AI forecast: the
+                algorithmic usage scaled by the AI council&apos;s multiplier from the latest news. Both rise when an order
+                in transit reaches its expected date. Actual stock is the daily closing count. The restock trigger is the
+                item&apos;s reorder level if set, otherwise the reorder point (usage over the supplier lead time plus
+                safety stock).
               </span>
             </div>
           </>

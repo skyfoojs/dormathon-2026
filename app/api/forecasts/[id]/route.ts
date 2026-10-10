@@ -1,18 +1,23 @@
 import { z } from "zod";
 import { NotFoundError } from "@/lib/errors";
 import { errorResponse, ok } from "@/lib/response";
-import { forecastItem } from "@/lib/forecast/demand";
-import { projectStock } from "@/lib/forecast/runout";
-import {
-  findForecastItems,
-  findForecastSuppliers,
-  findSupplyOrders,
-  findDailyStockRows,
-} from "@/lib/queries/forecastInputs";
+import { dayNumber, sumUsage, usageOnDay } from "@/lib/forecast/demand";
+import { aiUsageOnDay, buildAiForecast } from "@/lib/forecast/aiForecast";
+import { projectStock, stockHistory } from "@/lib/forecast/runout";
+import { loadForecastInputs, type ForecastInputs } from "@/lib/forecast/run";
+import { findLatestForecasts, toForecastBasis, type ForecastRow } from "@/lib/ai/algorithmic";
+import { findLatestAiForecasts, toUsageAdjustment, type LatestAiForecast } from "@/lib/ai/aiForecasts";
+import type { ForecastItem } from "@/lib/queries/forecastInputs";
 
 const idParamSchema = z.coerce.number().int().min(1);
 
 type Ctx = { params: Promise<{ id: string }> };
+
+type ItemData = {
+  item: ForecastItem;
+  inputs: ForecastInputs;
+  dayOffset: number;
+};
 
 // One item's demand forecast and its stock run-down projection.
 export async function GET(_req: Request, ctx: Ctx) {
@@ -25,27 +30,93 @@ export async function GET(_req: Request, ctx: Ctx) {
 }
 
 async function buildItemProjection(itemId: number) {
-  const [items, suppliers, dailyRows, purchaseOrders] = await Promise.all([
-    findForecastItems(),
-    findForecastSuppliers(),
-    findDailyStockRows(itemId),
-    findSupplyOrders(itemId),
+  const [inputs, forecasts, aiForecasts] = await Promise.all([
+    loadForecastInputs(itemId),
+    findLatestForecasts(itemId),
+    findLatestAiForecasts(itemId),
   ]);
-  const item = items.find((i) => i.item_id === itemId);
+  const item = inputs.items[0];
   if (!item) throw new NotFoundError(`Item ${itemId} not found`);
+  const history = stockHistory(inputs.dailyByItem.get(itemId) ?? []);
+  if (history.length === 0) throw new NotFoundError(`Item ${itemId} has no stock history`);
 
-  const supplier = suppliers.find((s) => s.supplier_id === item.primary_supplier_id);
-  const forecast = forecastItem({ item, dailyRows, purchaseOrders, supplier });
-  const projection = forecast
-    ? projectStock({ dailyRows, purchaseOrders, weeklyForecastQty: forecast.forecastQty })
-    : null;
-  if (!forecast || !projection) throw new NotFoundError(`Item ${itemId} has no stock history`);
+  const forecast = forecasts.get(itemId) ?? null;
+  const latestAi = aiForecasts.get(itemId) ?? null;
+  const data = forecast ? { item, inputs, dayOffset: daysSinceForecast(history, forecast) } : null;
 
   return {
     itemId,
     itemName: item.item_name,
     unit: item.unit,
-    weeklyForecastQty: forecast.forecastQty,
-    ...projection,
+    thresholdSource: item.reorder_level === null ? "reorder_point" : "reorder_level",
+    history,
+    algorithmic: forecast && data ? toAlgorithmicLine(forecast, data) : null,
+    ai: forecast && data && latestAi ? toAiLine(forecast, latestAi, data) : null,
+  };
+}
+
+function daysSinceForecast(history: { date: string }[], forecast: ForecastRow): number {
+  const lastActual = history[history.length - 1].date;
+  return Math.max(0, dayNumber(lastActual) + 1 - dayNumber(forecast.forecast_date));
+}
+
+function toAlgorithmicLine(forecast: ForecastRow, { item, inputs, dayOffset }: ItemData) {
+  const basis = toForecastBasis(forecast);
+  const usage = (h: number) => usageOnDay(basis, h + dayOffset);
+  const projection = projectStock({
+    dailyRows: inputs.dailyByItem.get(item.item_id) ?? [],
+    purchaseOrders: inputs.purchaseOrdersByItem.get(item.item_id) ?? [],
+    usage,
+    threshold: item.reorder_level ?? forecast.threshold ?? sumUsage(usage, basis.leadDays) + basis.safetyStock,
+  });
+  if (!projection) return null;
+
+  return {
+    forecastId: forecast.forecast_id,
+    madeAt: forecast.created_at,
+    usagePerDay: usage(1),
+    weeklyForecastQty: sumUsage(usage, 7),
+    coverDays: basis.coverDays,
+    safetyStock: basis.safetyStock,
+    buyQty: forecast.buy_qty,
+    projection: projection.projection,
+    arrivals: projection.arrivals,
+    threshold: projection.threshold,
+    trigger: projection.trigger,
+    stockoutDate: projection.stockoutDate,
+  };
+}
+
+function toAiLine(forecast: ForecastRow, latestAi: LatestAiForecast, { item, inputs, dayOffset }: ItemData) {
+  const basis = toForecastBasis(forecast);
+  const adjustment = toUsageAdjustment(latestAi, forecast.forecast_date);
+  const aiForecast = buildAiForecast({
+    basis,
+    adjustment,
+    reorderLevel: item.reorder_level ?? latestAi.threshold,
+    dailyRows: inputs.dailyByItem.get(item.item_id) ?? [],
+    purchaseOrders: inputs.purchaseOrdersByItem.get(item.item_id) ?? [],
+    dayOffset,
+  });
+  if (!aiForecast) return null;
+  const usage = (h: number) => aiUsageOnDay(basis, adjustment, h + dayOffset);
+  const { projection } = aiForecast;
+
+  return {
+    aiForecastId: latestAi.aiForecastId,
+    syncRunId: latestAi.syncRunId,
+    reused: latestAi.reused,
+    usageMultiplier: latestAi.usageMultiplier,
+    fadeDays: latestAi.fadeDays,
+    confidence: latestAi.confidence,
+    reasoning: latestAi.reasoning,
+    usagePerDay: usage(1),
+    weeklyForecastQty: sumUsage(usage, 7),
+    buyQty: latestAi.buyQty ?? aiForecast.buyQty,
+    projection: projection.projection,
+    arrivals: projection.arrivals,
+    threshold: projection.threshold,
+    trigger: projection.trigger,
+    stockoutDate: projection.stockoutDate,
   };
 }

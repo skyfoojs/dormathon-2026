@@ -1,8 +1,12 @@
 import "server-only";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
-import { runCouncil, type Persona } from "@/lib/ai/council";
-import { findLatestForecasts, findLatestInventoryDate, type ForecastRow } from "@/lib/ai/internal";
+import { coversAll, runCouncil, type Persona } from "@/lib/ai/council";
+import { deriveAiForecastFields } from "@/lib/ai/aiForecasts";
+import { findLatestForecasts, findLatestInventoryDate, toForecastBasis, type ForecastRow } from "@/lib/ai/algorithmic";
+import { usageOnDay } from "@/lib/forecast/demand";
+import { loadForecastInputs, type ForecastInputs } from "@/lib/forecast/run";
+import type { ForecastItem } from "@/lib/queries/forecastInputs";
 import { PAST_NEWS_WINDOW_DAYS, ageInDays, findRecentNews, type RecentNews } from "@/lib/ai/news";
 
 const CYCLE2_PERSONAS: readonly Persona[] = [
@@ -16,7 +20,7 @@ const CYCLE2_PERSONAS: readonly Persona[] = [
   },
   {
     name: "Demand analyst",
-    brief: "Neutral. Judge the internal forecast against current stock and how the validated news changes expected consumption.",
+    brief: "Neutral. Judge the algorithmic daily usage forecast against current stock and how the validated news changes expected consumption.",
   },
   {
     name: "Supply analyst",
@@ -25,62 +29,45 @@ const CYCLE2_PERSONAS: readonly Persona[] = [
 ];
 
 const CYCLE2_TASK = [
-  "For every item in items, decide whether the validated news means demand should be higher than, lower than or the same as the internal weekly demand forecast (internal.forecast_qty).",
-  "direction: increase, decrease or keep. Never give quantities.",
+  "For every item in items, re-forecast expected daily usage given the validated news, starting from the algorithmic forecast (algorithmic.usage_by_day).",
+  "usage_multiplier: scales the algorithmic usage curve. 1 = no change, 1.3 = 30% more, 0.7 = 30% less. No upper limit: a very serious event can justify a large multiplier.",
+  "fade_days: if the effect is temporary, the number of days until usage returns to the algorithmic forecast; null if it lasts.",
+  "Never give absolute quantities or dates; they are calculated from your multiplier.",
   "confidence: 0 to 1.",
-  "reasoning: why, including why the internal forecast is sufficient or not.",
+  "reasoning: why, including why the algorithmic forecast is sufficient or not.",
   "news has the latest council verdict per article and its age in days; older news usually matters less.",
-  "Only use item_id values from items. Return exactly one suggestion per item.",
+  "Only use item_id values from items. Return exactly one forecast per item.",
 ].join("\n");
 
-const suggestionsSchema = z.object({
-  suggestions: z.array(
+const forecastsSchema = z.object({
+  forecasts: z.array(
     z.object({
       item_id: z.number().int(),
-      direction: z.enum(["increase", "decrease", "keep"]),
+      usage_multiplier: z.number().positive(),
+      fade_days: z.number().int().positive().nullable(),
       confidence: z.number().min(0).max(1),
       reasoning: z.string(),
     }),
   ),
 });
 
-const itemRowSchema = z.object({
-  item_id: z.number(),
-  item_name: z.string().nullable(),
-  category: z.string().nullable(),
-  unit: z.string().nullable(),
-  is_critical: z.number().nullable(),
-  shelf_life_months: z.number().nullable(),
-  cover_days: z.number().nullable(),
-});
-
-const stockRowSchema = z.object({ item_id: z.number(), closing_stock: z.number().nullable() });
-const openOrderRowSchema = z.object({
-  item_id: z.number().nullable(),
-  qty_ordered: z.number().nullable(),
-  expected_receipt_date: z.string().nullable(),
-});
-
-type ItemRow = z.infer<typeof itemRowSchema>;
-type OpenOrderRow = z.infer<typeof openOrderRowSchema>;
-type Suggestion = z.infer<typeof suggestionsSchema>["suggestions"][number];
-type Stock = { asOf: string | null; byItem: Map<number, number | null> };
+type AiForecast = z.infer<typeof forecastsSchema>["forecasts"][number];
 
 const OPEN_ORDER_STATUS = "In transit";
+const USAGE_REFERENCE_DAYS = [1, 7, 14, 30] as const;
 
-export type Cycle2Result = { councilRunId: number; suggestions: number; stockAsOf: string | null };
+export type Cycle2Result = { councilRunId: number; forecasts: number; stockAsOf: string | null };
 
 export async function runCycle2(syncRunId: number): Promise<Cycle2Result> {
-  const [items, forecasts, stock, openOrders, news] = await Promise.all([
-    findItems(),
+  const [inputs, forecasts, news, stockAsOf] = await Promise.all([
+    loadForecastInputs(),
     findLatestForecasts(),
-    findLatestStock(),
-    findOpenOrders(),
     findRecentNews(),
+    findLatestInventoryDate(),
   ]);
-  const forecastable = items.filter((item) => forecasts.has(item.item_id));
+  const forecastable = inputs.items.filter((item) => forecasts.has(item.item_id));
   if (forecastable.length === 0) {
-    throw new Error("Cycle 2: no internal forecasts found in demand_forecasts");
+    throw new Error("Cycle 2: no algorithmic forecasts found in demand_forecasts");
   }
 
   const { councilRunId, decision } = await runCouncil({
@@ -89,49 +76,24 @@ export async function runCycle2(syncRunId: number): Promise<Cycle2Result> {
     task: CYCLE2_TASK,
     data: {
       today: new Date().toISOString().slice(0, 10),
-      stock_as_of: stock.asOf,
+      stock_as_of: stockAsOf,
       past_news_window_days: PAST_NEWS_WINDOW_DAYS,
       news: news.filter(isValidated).map(toNewsInput),
-      items: forecastable.map((item) => toItemInput(item, forecasts, stock, openOrders)),
+      items: forecastable.map((item) => toItemInput(item, forecasts, inputs)),
     },
     personas: CYCLE2_PERSONAS,
-    opinionSchema: suggestionsSchema,
-    decisionSchema: suggestionsSchema,
+    opinionSchema: forecastsSchema,
+    decisionSchema: forecastsSchema,
+    isCompleteOpinion: (opinion) =>
+      coversAll(
+        opinion.forecasts.map((f) => f.item_id),
+        forecastable.map((i) => i.item_id),
+      ),
   });
 
-  const suggestions = keepKnownItems(decision.suggestions, forecasts);
-  await insertSuggestions(syncRunId, councilRunId, suggestions, forecasts);
-  return { councilRunId, suggestions: suggestions.length, stockAsOf: stock.asOf };
-}
-
-async function findItems(): Promise<ItemRow[]> {
-  const { data, error } = await getDb()
-    .from("items")
-    .select("item_id, item_name, category, unit, is_critical, shelf_life_months, cover_days")
-    .order("item_id");
-  if (error) throw error;
-  return z.array(itemRowSchema).parse(data);
-}
-
-async function findLatestStock(): Promise<Stock> {
-  const asOf = await findLatestInventoryDate();
-  if (!asOf) return { asOf: null, byItem: new Map() };
-  const { data, error } = await getDb()
-    .from("daily_inventory")
-    .select("item_id, closing_stock")
-    .eq("inventory_date", asOf);
-  if (error) throw error;
-  const rows = z.array(stockRowSchema).parse(data);
-  return { asOf, byItem: new Map(rows.map((row) => [row.item_id, row.closing_stock])) };
-}
-
-async function findOpenOrders(): Promise<OpenOrderRow[]> {
-  const { data, error } = await getDb()
-    .from("purchase_orders")
-    .select("item_id, qty_ordered, expected_receipt_date")
-    .eq("status", OPEN_ORDER_STATUS);
-  if (error) throw error;
-  return z.array(openOrderRowSchema).parse(data);
+  const aiForecasts = keepKnownItems(decision.forecasts, forecasts);
+  const saved = await insertAiForecasts(syncRunId, councilRunId, aiForecasts, forecasts, inputs);
+  return { councilRunId, forecasts: saved, stockAsOf };
 }
 
 function isValidated(article: RecentNews): boolean {
@@ -149,8 +111,13 @@ function toNewsInput(article: RecentNews) {
   };
 }
 
-function toItemInput(item: ItemRow, forecasts: Map<number, ForecastRow>, stock: Stock, openOrders: OpenOrderRow[]) {
+function toItemInput(item: ForecastItem, forecasts: Map<number, ForecastRow>, inputs: ForecastInputs) {
   const forecast = forecasts.get(item.item_id);
+  const dailyRows = inputs.dailyByItem.get(item.item_id) ?? [];
+  const latestRow = dailyRows.reduce<(typeof dailyRows)[number] | null>(
+    (latest, row) => (!latest || row.inventory_date > latest.inventory_date ? row : latest),
+    null,
+  );
   return {
     item_id: item.item_id,
     name: item.item_name,
@@ -158,53 +125,73 @@ function toItemInput(item: ItemRow, forecasts: Map<number, ForecastRow>, stock: 
     unit: item.unit,
     is_critical: item.is_critical === 1,
     shelf_life_months: item.shelf_life_months,
-    cover_days: item.cover_days,
-    stock_on_hand: stock.byItem.get(item.item_id) ?? null,
-    open_orders: openOrders
-      .filter((order) => order.item_id === item.item_id)
+    stock_on_hand: latestRow?.closing_stock ?? null,
+    open_orders: (inputs.purchaseOrdersByItem.get(item.item_id) ?? [])
+      .filter((order) => order.status === OPEN_ORDER_STATUS)
       .map((order) => ({ qty: order.qty_ordered, expected_receipt_date: order.expected_receipt_date })),
-    internal: forecast
-      ? {
-          forecast_qty: forecast.forecast_qty,
-          safety_stock: forecast.safety_stock,
-          target_week_start: forecast.target_week_start,
-          forecast_made_at: forecast.created_at,
-        }
-      : null,
+    algorithmic: forecast ? toAlgorithmicInput(forecast) : null,
   };
 }
 
-function keepKnownItems(suggestions: Suggestion[], forecasts: Map<number, ForecastRow>): Suggestion[] {
+function toAlgorithmicInput(forecast: ForecastRow) {
+  const basis = toForecastBasis(forecast);
+  return {
+    usage_by_day: Object.fromEntries(
+      USAGE_REFERENCE_DAYS.map((day) => [`day_${day}`, Math.round(usageOnDay(basis, day) * 100) / 100]),
+    ),
+    forecast_from: forecast.forecast_date,
+    restock_threshold: forecast.threshold,
+    threshold_date: forecast.threshold_date,
+    stockout_date: forecast.stockout_date,
+    at_or_below_threshold: forecast.triggered,
+    cover_days: forecast.cover_days,
+    buy_qty: forecast.buy_qty,
+    safety_stock: forecast.safety_stock,
+    forecast_made_at: forecast.created_at,
+  };
+}
+
+function keepKnownItems(aiForecasts: AiForecast[], forecasts: Map<number, ForecastRow>): AiForecast[] {
   const seen = new Set<number>();
-  return suggestions.filter((suggestion) => {
-    if (!forecasts.has(suggestion.item_id) || seen.has(suggestion.item_id)) return false;
-    seen.add(suggestion.item_id);
+  return aiForecasts.filter((aiForecast) => {
+    if (!forecasts.has(aiForecast.item_id) || seen.has(aiForecast.item_id)) return false;
+    seen.add(aiForecast.item_id);
     return true;
   });
 }
 
-async function insertSuggestions(
+async function insertAiForecasts(
   syncRunId: number,
   councilRunId: number,
-  suggestions: Suggestion[],
+  aiForecasts: AiForecast[],
   forecasts: Map<number, ForecastRow>,
-): Promise<void> {
-  if (suggestions.length === 0) return;
-  const rows = suggestions.flatMap((suggestion) => {
-    const forecast = forecasts.get(suggestion.item_id);
+  inputs: ForecastInputs,
+): Promise<number> {
+  const rows = aiForecasts.flatMap((aiForecast) => {
+    const forecast = forecasts.get(aiForecast.item_id);
     if (!forecast) return [];
+    const derived = deriveAiForecastFields(inputs, aiForecast.item_id, toForecastBasis(forecast), {
+      usageMultiplier: aiForecast.usage_multiplier,
+      fadeDays: aiForecast.fade_days,
+      elapsedDays: 0,
+    });
+    if (!derived) return [];
     return [
       {
         sync_run_id: syncRunId,
-        item_id: suggestion.item_id,
+        item_id: aiForecast.item_id,
         forecast_id: forecast.forecast_id,
         council_run_id: councilRunId,
-        direction: suggestion.direction,
-        confidence: suggestion.confidence,
-        reasoning: suggestion.reasoning,
+        usage_multiplier: aiForecast.usage_multiplier,
+        fade_days: aiForecast.fade_days,
+        confidence: aiForecast.confidence,
+        reasoning: aiForecast.reasoning,
+        ...derived,
       },
     ];
   });
-  const { error } = await getDb().from("ai_suggestions").insert(rows);
+  if (rows.length === 0) return 0;
+  const { error } = await getDb().from("ai_forecasts").insert(rows);
   if (error) throw error;
+  return rows.length;
 }

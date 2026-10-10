@@ -13,11 +13,17 @@
 //      hand and already in transit.
 // Lines for the same supplier are put on one order.
 
-import type { Item } from "@/lib/db/types";
-import { addDays, forecastItem, type DailyStockRow, type SupplyOrderRow } from "@/lib/forecast/demand";
+import {
+  addDays,
+  forecastItem,
+  usageOnDay,
+  usageOverDays,
+  type DailyStockRow,
+  type SupplyOrderRow,
+} from "@/lib/forecast/demand";
 import { projectStock } from "@/lib/forecast/runout";
 import { summariseRecentUsage, USAGE_WINDOW_DAYS } from "@/lib/forecast/usage";
-import type { ForecastSupplier } from "@/lib/queries/forecastInputs";
+import type { ForecastItem, ForecastSupplier } from "@/lib/queries/forecastInputs";
 
 // How many days of predicted usage one automated order should cover.
 export const ORDER_COVER_DAYS = 30;
@@ -54,7 +60,7 @@ export type RestockPlan = {
 };
 
 export function planRestockOrders(input: {
-  items: Item[];
+  items: ForecastItem[];
   suppliers: ForecastSupplier[];
   dailyByItem: Map<number, DailyStockRow[]>;
   ordersByItem: Map<number, SupplyOrderRow[]>;
@@ -81,22 +87,30 @@ export function planRestockOrders(input: {
       supplier: supplierById.get(item.primary_supplier_id),
     });
     const projection = forecast
-      ? projectStock({ dailyRows, purchaseOrders, weeklyForecastQty: forecast.forecastQty })
+      ? projectStock({
+          dailyRows,
+          purchaseOrders,
+          usage: (h) => usageOnDay(forecast, h),
+          threshold: item.reorder_level ?? forecast.reorderPoint,
+        })
       : null;
     if (!forecast || !projection) {
       skip("no-history");
       continue;
     }
 
-    const leadDays = Math.max(1, Math.ceil(forecast.leadWeeks * 7));
+    const leadDays = Math.max(1, Math.ceil(forecast.leadDays));
     const trigger = projection.trigger;
     if (!trigger || trigger.daysFromLastActual > leadDays) {
       skip("above-threshold");
       continue;
     }
 
-    const coverQty = projection.dailyDemand * ORDER_COVER_DAYS;
-    const qtyOrdered = Math.ceil(coverQty - forecast.onHand - forecast.onOrder);
+    const onOrder = purchaseOrders
+      .filter((po) => OPEN_STATUSES.has(po.status))
+      .reduce((sum, po) => sum + po.qty_ordered, 0);
+    const coverQty = usageOverDays(forecast, ORDER_COVER_DAYS);
+    const qtyOrdered = Math.ceil(coverQty - forecast.stockLeft - onOrder);
     if (qtyOrdered <= 0) {
       skip("enough-stock");
       continue;
@@ -107,9 +121,9 @@ export function planRestockOrders(input: {
       itemName: item.item_name,
       qtyOrdered,
       unitCostMyr: item.unit_cost_myr,
-      onHand: forecast.onHand,
-      onOrder: forecast.onOrder,
-      weeklyForecastQty: forecast.forecastQty,
+      onHand: forecast.stockLeft,
+      onOrder,
+      weeklyForecastQty: usageOverDays(forecast, 7),
       recentUsageQty: summariseRecentUsage(dailyRows, USAGE_WINDOW_DAYS)[0]?.usageQty ?? 0,
       threshold: projection.threshold,
       triggerDate: trigger.date,

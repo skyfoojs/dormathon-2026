@@ -7,17 +7,18 @@ import { ingestNews } from "@/lib/ai/ingest";
 import { screenPendingArticles } from "@/lib/ai/screener";
 import { runCycle1 } from "@/lib/ai/cycle1";
 import { runCycle2 } from "@/lib/ai/cycle2";
-import { findLatestForecasts, findLatestInventoryDate } from "@/lib/ai/internal";
+import { deriveAiForecastFields, findLatestAiForecasts, toUsageAdjustment } from "@/lib/ai/aiForecasts";
+import { findLatestForecasts, findLatestInventoryDate, toForecastBasis } from "@/lib/ai/algorithmic";
+import { loadForecastInputs, runForecasts } from "@/lib/forecast/run";
 
 export type SyncTrigger = "manual" | "hourly" | "daily";
 export type SyncScope = "news" | "full";
-type SyncStage = "fetching_news" | "screening" | "cycle1" | "cycle2" | "reusing_last_verdict" | "done";
+type SyncStage = "algorithmic_forecast" | "fetching_news" | "screening" | "cycle1" | "cycle2" | "reusing_last_verdict" | "done";
 
 export const SYNC_TIMEOUT_SECONDS = 300;
 export const MAX_SYNC_COST_USD = 1;
 
 const UNIQUE_VIOLATION = "23505";
-const SUGGESTION_LOOKBACK_ROWS = 2000;
 
 export const syncRunSchema = z.object({
   sync_run_id: z.number(),
@@ -37,14 +38,6 @@ export const SYNC_RUN_COLUMNS = "sync_run_id, trigger, scope, status, stage, err
 
 const costRowSchema = z.object({ cost_usd: z.number().nullable() });
 const countSchema = z.number();
-const previousSuggestionSchema = z.object({
-  suggestion_id: z.number(),
-  item_id: z.number(),
-  council_run_id: z.number().nullable(),
-  source_suggestion_id: z.number().nullable(),
-});
-
-type PreviousSuggestion = z.infer<typeof previousSuggestionSchema>;
 
 class CostCapExceededError extends Error {
   constructor(spentUsd: number) {
@@ -67,9 +60,10 @@ export async function startSyncRun(trigger: SyncTrigger, scope: SyncScope): Prom
   return syncRunSchema.parse(data);
 }
 
-export async function executeSyncRun(syncRunId: number): Promise<void> {
+export async function executeSyncRun(run: Pick<SyncRun, "sync_run_id" | "scope">): Promise<void> {
+  const syncRunId = run.sync_run_id;
   try {
-    const stockAsOf = await runPipeline(syncRunId);
+    const stockAsOf = await runPipeline(syncRunId, run.scope);
     await finishRun(syncRunId, { status: "succeeded", stage: "done", stock_as_of: stockAsOf, error: null });
   } catch (err) {
     console.error(`Sync run ${syncRunId} failed`, err);
@@ -96,7 +90,12 @@ async function failTimedOutRuns(): Promise<void> {
   if (error) throw error;
 }
 
-async function runPipeline(syncRunId: number): Promise<string | null> {
+async function runPipeline(syncRunId: number, scope: SyncScope): Promise<string | null> {
+  if (scope === "full") {
+    await setStage(syncRunId, "algorithmic_forecast");
+    await runForecasts();
+  }
+
   await setStage(syncRunId, "fetching_news");
   const ingest = await ingestNews(syncRunId);
   if (ingest.failedSources.length > 0) {
@@ -105,7 +104,7 @@ async function runPipeline(syncRunId: number): Promise<string | null> {
 
   if (ingest.newArticleIds.length === 0 && (await countPendingArticles()) === 0) {
     await setStage(syncRunId, "reusing_last_verdict");
-    return reuseLastSuggestions(syncRunId);
+    return reuseLastAiForecasts(syncRunId);
   }
 
   await setStage(syncRunId, "screening");
@@ -151,41 +150,36 @@ async function countPendingArticles(): Promise<number> {
   return countSchema.parse(count ?? 0);
 }
 
-async function reuseLastSuggestions(syncRunId: number): Promise<string | null> {
-  const [previous, forecasts, stockAsOf] = await Promise.all([
-    findLatestSuggestionPerItem(),
+async function reuseLastAiForecasts(syncRunId: number): Promise<string | null> {
+  const [adjustments, forecasts, inputs, stockAsOf] = await Promise.all([
+    findLatestAiForecasts(),
     findLatestForecasts(),
+    loadForecastInputs(),
     findLatestInventoryDate(),
   ]);
-  const rows = previous.flatMap((suggestion) => {
-    const forecast = forecasts.get(suggestion.item_id);
+  const rows = [...adjustments].flatMap(([itemId, adjustment]) => {
+    const forecast = forecasts.get(itemId);
     if (!forecast) return [];
+    const derived = deriveAiForecastFields(
+      inputs,
+      itemId,
+      toForecastBasis(forecast),
+      toUsageAdjustment(adjustment, forecast.forecast_date),
+    );
+    if (!derived) return [];
     return [
       {
         sync_run_id: syncRunId,
-        item_id: suggestion.item_id,
+        item_id: itemId,
         forecast_id: forecast.forecast_id,
-        source_suggestion_id: suggestion.council_run_id ? suggestion.suggestion_id : suggestion.source_suggestion_id,
+        source_ai_forecast_id: adjustment.originalAiForecastId,
+        ...derived,
       },
     ];
   });
   if (rows.length > 0) {
-    const { error } = await getDb().from("ai_suggestions").insert(rows);
+    const { error } = await getDb().from("ai_forecasts").insert(rows);
     if (error) throw error;
   }
   return stockAsOf;
-}
-
-async function findLatestSuggestionPerItem(): Promise<PreviousSuggestion[]> {
-  const { data, error } = await getDb()
-    .from("ai_suggestions")
-    .select("suggestion_id, item_id, council_run_id, source_suggestion_id")
-    .order("suggestion_id", { ascending: false })
-    .limit(SUGGESTION_LOOKBACK_ROWS);
-  if (error) throw error;
-  const latest = new Map<number, PreviousSuggestion>();
-  for (const row of z.array(previousSuggestionSchema).parse(data)) {
-    if (!latest.has(row.item_id)) latest.set(row.item_id, row);
-  }
-  return [...latest.values()];
 }

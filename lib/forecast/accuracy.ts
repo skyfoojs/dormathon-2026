@@ -1,19 +1,23 @@
 // Prediction accuracy over time, one point per closed week.
 //
 // For most past weeks only the arithmetic forecast exists, so the point
-// scores that alone (a rolling backtest: each week is forecast from the weeks
-// before it). Where a saved forecast run exists for the week, the prediction
+// scores that alone (a rolling backtest: each week is forecast from only the
+// days before it). Where a saved forecast run exists for the week, the prediction
 // is what was actually saved, and if the AI adjusted it, the prediction is
 // the average of the AI figure and the arithmetic figure.
 
 import {
   addDays,
-  backtestWeeklyForecasts,
-  buildDemandSeries,
+  buildDailyDemandSeries,
   dayNumber,
-  toWeeklyDemandRows,
+  forecastItem,
+  usageOverDays,
   type DailyStockRow,
 } from "@/lib/forecast/demand";
+
+// A week is only forecast once this many days of history come before it,
+// the same minimum the daily forecast needs to use both of its methods.
+const MIN_HISTORY_DAYS = 28;
 
 // A saved forecast run for one item: demand_forecasts joined to the latest
 // ai_forecasts row that points at it, if any.
@@ -66,24 +70,54 @@ function accuracyOf(predictedQty: number, actualQty: number): number {
   return Math.max(0, 100 - (Math.abs(predictedQty - actualQty) / actualQty) * 100);
 }
 
+type WeekActual = { weekStart: string; actualQty: number };
+
+// Daily demand added up into Monday-start weeks. Only complete weeks (7
+// days) are kept, so a part-recorded week never reads as a drop in demand.
+function toWeeklyActuals(dailyRows: DailyStockRow[]): WeekActual[] {
+  const weeks = new Map<string, { actualQty: number; days: number }>();
+  for (const point of buildDailyDemandSeries(dailyRows)) {
+    const weekStart = weekStartOf(point.date);
+    const week = weeks.get(weekStart) ?? { actualQty: 0, days: 0 };
+    week.actualQty += point.demand;
+    week.days += 1;
+    weeks.set(weekStart, week);
+  }
+  return [...weeks.entries()]
+    .filter(([, week]) => week.days === 7)
+    .map(([weekStart, week]) => ({ weekStart, actualQty: week.actualQty }))
+    .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+}
+
+// What the daily forecast would have predicted for the week, given only the
+// rows recorded before it. Null when there is too little history.
+function forecastWeek(itemId: number, dailyRows: DailyStockRow[], weekStart: string): number | null {
+  const before = dailyRows.filter((r) => r.inventory_date.slice(0, 10) < weekStart);
+  if (before.length < MIN_HISTORY_DAYS) return null;
+  const forecast = forecastItem({ item: { item_id: itemId, is_critical: 0 }, dailyRows: before, purchaseOrders: [] });
+  return forecast ? usageOverDays(forecast, 7) : null;
+}
+
 export function buildItemAccuracy(input: {
   itemId: number;
   itemName: string;
   dailyRows: DailyStockRow[];
   savedForecasts: SavedForecast[];
 }): ItemAccuracy {
-  const series = buildDemandSeries(toWeeklyDemandRows(input.dailyRows));
-  const actualByWeek = new Map(series.map((p) => [p.weekStart, p.demand]));
+  const weeks = toWeeklyActuals(input.dailyRows);
+  const actualByWeek = new Map(weeks.map((w) => [w.weekStart, w.actualQty]));
 
   const pointByWeek = new Map<string, AccuracyPoint>();
-  for (const week of backtestWeeklyForecasts(series)) {
+  for (const week of weeks) {
+    const forecastQty = forecastWeek(input.itemId, input.dailyRows, week.weekStart);
+    if (forecastQty === null) continue;
     pointByWeek.set(week.weekStart, {
       weekStart: week.weekStart,
       actualQty: week.actualQty,
-      arithmeticQty: week.forecastQty,
+      arithmeticQty: forecastQty,
       aiQty: null,
-      predictedQty: week.forecastQty,
-      accuracy: accuracyOf(week.forecastQty, week.actualQty),
+      predictedQty: forecastQty,
+      accuracy: accuracyOf(forecastQty, week.actualQty),
       source: "arithmetic",
     });
   }
