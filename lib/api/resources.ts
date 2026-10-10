@@ -11,6 +11,7 @@ import type {
   Supplier,
   WeeklyInventory,
 } from "@/lib/db/types";
+import type { ItemAccuracy } from "@/lib/forecast/accuracy";
 import type { RestockTrigger, StockPoint } from "@/lib/forecast/runout";
 import type { AutomatedOrdersResult } from "@/lib/orders/automatedPurchaseOrders";
 
@@ -188,4 +189,9 @@ export function getDemandForecasts(facilityId: number): Promise<DemandForecast[]
 // it returns the plan without saving anything.
 export function runAutomatedPurchaseOrders(dryRun = false): Promise<AutomatedOrdersResult> {
   return apiPost<AutomatedOrdersResult>("/api/purchase-orders/automated", { dry_run: dryRun });
+}
+
+// Weekly prediction accuracy for every item, most accurate first.
+export function getForecastAccuracy(): Promise<ItemAccuracy[]> {
+  return apiGet<ItemAccuracy[]>("/api/forecast-accuracy?pageSize=100");
 }
