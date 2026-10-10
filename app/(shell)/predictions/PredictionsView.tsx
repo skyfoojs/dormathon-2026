@@ -8,6 +8,7 @@ import { AllRunsModal } from "@/components/predictions/AllRunsModal";
 import { RunDetail } from "@/components/predictions/RunDetail";
 import { SourcesAndChanges } from "@/components/predictions/SourcesAndChanges";
 import { SuggestedStockTable } from "@/components/predictions/SuggestedStockTable";
+import { StockRunoutCard } from "@/components/predictions/StockRunoutCard";
 import { usePredictions } from "@/components/providers/PredictionsProvider";
 import { getRunDetail } from "@/lib/mock/predictionDetail";
 
@@ -26,6 +27,8 @@ export default function PredictionsView() {
       />
 
       <LastSyncCard latestRun={runs[0]} onSyncNow={syncNow} />
+
+      <StockRunoutCard />
 
       <RunTilesSection
         runs={runs}
