@@ -15,7 +15,6 @@ import { useFacility } from "@/components/providers/FacilityProvider";
 import { getPurchaseOrderRows, groupOrderRows, type OrderRow } from "@/lib/data/inventory";
 import { isPurchaseOrderDelayed } from "@/lib/data/purchaseOrders";
 import { TODAY_ISO } from "@/lib/db/seed";
-import { openPoPdf } from "@/lib/orders/poDocument";
 import * as api from "@/lib/api/resources";
 import type { PurchaseOrderCreator, PurchaseOrderStatus } from "@/lib/db/types";
 
@@ -52,19 +51,18 @@ const MYR = new Intl.NumberFormat("en-MY", { minimumFractionDigits: 2, maximumFr
 const QTY = new Intl.NumberFormat("en-MY");
 
 export default function OrdersView() {
-  const { facilityId, facility } = useFacility();
+  const { facilityId } = useFacility();
   if (facilityId === null) return null;
-  return <OrdersViewContent facilityId={facilityId} facilityName={facility?.facility_name ?? ""} />;
+  return <OrdersViewContent facilityId={facilityId} />;
 }
 
-function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; facilityName: string }) {
+function OrdersViewContent({ facilityId }: { facilityId: number }) {
   const qc = useQueryClient();
   const [filter, setFilter] = React.useState<Filter>("Pending");
   const [creatorFilter, setCreatorFilter] = React.useState<CreatorFilter>("AiGIS");
   const [search, setSearch] = React.useState("");
   const [panel, setPanel] = React.useState<Panel | null>(null);
   const [showSaved, setShowSaved] = React.useState(false);
-  const [pdfError, setPdfError] = React.useState<string | null>(null);
 
   const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
   const suppliersQuery = useQuery({ queryKey: ["suppliers"], queryFn: api.getSuppliers });
@@ -154,13 +152,6 @@ function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; f
     });
   }
 
-  function handleGeneratePdf(order: OrderRow) {
-    setPdfError(null);
-    openPoPdf({ order, facilityName, loadDocument: api.getPoDocument }).catch((err: Error) =>
-      setPdfError(err.message),
-    );
-  }
-
   function handleDeleteConfirm() {
     if (panel?.mode !== "delete") return;
     const order = allRows.find((r) => r.po.po_id === panel.id);
@@ -187,12 +178,6 @@ function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; f
       {loadError ? (
         <div className="rounded-md border border-red bg-red/5 p-4 text-sm text-red-dark">
           Could not load data from the database: {(loadError as Error).message}
-        </div>
-      ) : null}
-
-      {pdfError ? (
-        <div role="alert" className="rounded-md border border-red bg-red/5 p-4 text-sm text-red-dark">
-          Could not generate the PDF: {pdfError}
         </div>
       ) : null}
 
@@ -280,7 +265,6 @@ function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; f
           }
           onMarkReceived={handleMarkReceived}
           onView={(r) => setPanel({ mode: "view", id: r.po.po_id })}
-          onGeneratePdf={handleGeneratePdf}
           onDelete={(r) => setPanel({ mode: "delete", id: r.po.po_id })}
         />
         <p className="text-xs text-muted">

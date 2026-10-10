@@ -13,7 +13,12 @@ import { AllReportsDialog } from "@/components/dashboard/AllReportsDialog";
 import { AegiAvatar } from "@/components/dashboard/AegiAvatar";
 import { useFacility } from "@/components/providers/FacilityProvider";
 import * as api from "@/lib/api/resources";
-import { accuracyTheme, KPI_ICON_PATHS, KPI_THEME, NO_DATA_THEME } from "@/lib/data/kpiStyle";
+import {
+  accuracyTheme,
+  KPI_ICON_PATHS,
+  KPI_THEME,
+  NO_DATA_THEME,
+} from "@/lib/data/kpiStyle";
 import { getPurchaseOrderRows, groupOrderRows } from "@/lib/data/inventory";
 import {
   getExpectedVsActualSeries,
@@ -40,7 +45,10 @@ export default function DashboardView() {
   if (facilityId === null || facility === null) return null;
   return (
     <>
-      <DashboardViewContent facilityId={facilityId} facilityName={facility.facility_name} />
+      <DashboardViewContent
+        facilityId={facilityId}
+        facilityName={facility.facility_name}
+      />
       <AegiHost facilityId={facilityId} />
     </>
   );
@@ -56,12 +64,19 @@ function AegiHost({ facilityId }: { facilityId: number }) {
     queryFn: () => api.getReports(facilityId),
   });
   const reports = reportsQuery.data ?? [];
-  const reportsAreSample = reportsQuery.data === undefined || reports.length === 0;
+  const reportsAreSample =
+    reportsQuery.data === undefined || reports.length === 0;
   const pendingCount = reportsAreSample
     ? SAMPLE_PENDING_COUNT
     : reports.filter((r) => r.status === "pending_approval").length;
 
-  return <AegiAvatar pending={pendingCount} sample={reportsAreSample} reviewHref="/orders" />;
+  return (
+    <AegiAvatar
+      pending={pendingCount}
+      sample={reportsAreSample}
+      reviewHref="/orders"
+    />
+  );
 }
 
 function DashboardViewContent({
@@ -82,7 +97,10 @@ function DashboardViewContent({
   >("all");
 
   const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
-  const suppliersQuery = useQuery({ queryKey: ["suppliers"], queryFn: api.getSuppliers });
+  const suppliersQuery = useQuery({
+    queryKey: ["suppliers"],
+    queryFn: api.getSuppliers,
+  });
   const weeklyInventoryQuery = useQuery({
     queryKey: ["weekly-inventory", facilityId],
     queryFn: () => api.getWeeklyInventory(facilityId),
@@ -177,7 +195,12 @@ function DashboardViewContent({
     ? sampleStatusBreakdown()
     : getReportStatusBreakdown(reports);
   const orders = groupOrderRows(
-    getPurchaseOrderRows(facilityId, purchaseOrders, items, suppliersQuery.data ?? []),
+    getPurchaseOrderRows(
+      facilityId,
+      purchaseOrders,
+      items,
+      suppliersQuery.data ?? [],
+    ),
   );
 
   const forecastsAreSample = forecasts.length === 0;
@@ -219,8 +242,14 @@ function DashboardViewContent({
         <DashboardKpiCard
           label="Purchase orders delivered"
           provenance="database"
-          value={poHasData ? `${poDelivered.delivered} of ${poDelivered.total}` : "—"}
-          sub={poHasData ? `${poDelivered.total - poDelivered.delivered} still open` : "No sample data"}
+          value={
+            poHasData ? `${poDelivered.delivered} of ${poDelivered.total}` : "—"
+          }
+          sub={
+            poHasData
+              ? `${poDelivered.total - poDelivered.delivered} still open`
+              : "No sample data"
+          }
           iconPath={KPI_ICON_PATHS.po}
           theme={poHasData ? KPI_THEME.po : NO_DATA_THEME}
           delayMs={80}
@@ -228,17 +257,35 @@ function DashboardViewContent({
         <DashboardKpiCard
           label="Prediction accuracy"
           provenance="synthetic-data"
-          value={accuracyHasData ? `${accuracyKpi.meanAccuracy.toFixed(1)}%` : "—"}
-          sub={accuracyHasData ? `All products, ${accuracyKpi.weeksScored} weeks` : "No sample data"}
+          value={
+            accuracyHasData ? `${accuracyKpi.meanAccuracy.toFixed(1)}%` : "—"
+          }
+          sub={
+            accuracyHasData
+              ? `All products, ${accuracyKpi.weeksScored} weeks`
+              : "No sample data"
+          }
           iconPath={KPI_ICON_PATHS.accuracy}
-          theme={accuracyHasData ? accuracyTheme(accuracyKpi.meanAccuracy) : NO_DATA_THEME}
+          theme={
+            accuracyHasData
+              ? accuracyTheme(accuracyKpi.meanAccuracy)
+              : NO_DATA_THEME
+          }
           delayMs={160}
         />
         <DashboardKpiCard
           label="Items well stocked"
           provenance="model-output"
-          value={stockHasData ? `${wellStocked.wellStocked} of ${wellStocked.total}` : "—"}
-          sub={stockHasData ? `${wellStocked.total - wellStocked.wellStocked} running low` : "No sample data"}
+          value={
+            stockHasData
+              ? `${wellStocked.wellStocked} of ${wellStocked.total}`
+              : "—"
+          }
+          sub={
+            stockHasData
+              ? `${wellStocked.total - wellStocked.wellStocked} running low`
+              : "No sample data"
+          }
           iconPath={KPI_ICON_PATHS.stock}
           theme={stockHasData ? KPI_THEME.stock : NO_DATA_THEME}
           delayMs={240}
@@ -257,7 +304,7 @@ function DashboardViewContent({
           />
         </div>
         <div className="min-w-0 lg:col-span-2">
-          <AutomatedOrdersCard orders={orders} facilityName={facilityName} />
+          <AutomatedOrdersCard orders={orders} />
         </div>
       </div>
 

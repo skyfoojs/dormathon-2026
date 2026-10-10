@@ -8,10 +8,8 @@ import { Modal } from "@/components/ui/Modal";
 import { Tag } from "@/components/ui/Tag";
 import { PurchaseOrderDetails } from "@/components/orders/PurchaseOrderDetails";
 import { STATUS_TONE } from "@/components/orders/PurchaseOrdersTable";
-import * as api from "@/lib/api/resources";
 import { formatShortDate } from "@/lib/data/dates";
 import { getPurchaseOrderDisplayStatus } from "@/lib/data/purchaseOrders";
-import { openPoPdf } from "@/lib/orders/poDocument";
 import type { OrderRow } from "@/lib/data/inventory";
 
 const MAX_ROWS = 5;
@@ -19,22 +17,15 @@ const MYR = new Intl.NumberFormat("en-MY", { minimumFractionDigits: 2, maximumFr
 const HEADER_CELL = "px-2 py-1 text-left font-mono text-xs font-medium tracking-wide text-muted uppercase";
 
 // Purchase orders that AiGIS raised on its own (created_by = "AiGIS"),
-// newest first. Each can be opened to see its line items or turned into the
-// Pesanan Tempatan PDF.
-export function AutomatedOrdersCard({ orders, facilityName }: { orders: OrderRow[]; facilityName: string }) {
+// newest first. Each can be opened to see its line items.
+export function AutomatedOrdersCard({ orders }: { orders: OrderRow[] }) {
   const [viewedId, setViewedId] = React.useState<number | null>(null);
-  const [pdfError, setPdfError] = React.useState<string | null>(null);
 
   const automated = orders
     .filter((o) => o.po.created_by === "AiGIS")
     .sort((a, b) => b.po.order_date.localeCompare(a.po.order_date) || b.po.po_id - a.po.po_id);
   const shown = automated.slice(0, MAX_ROWS);
   const viewed = viewedId === null ? undefined : automated.find((o) => o.po.po_id === viewedId);
-
-  function handleGeneratePdf(order: OrderRow) {
-    setPdfError(null);
-    openPoPdf({ order, facilityName, loadDocument: api.getPoDocument }).catch((err: Error) => setPdfError(err.message));
-  }
 
   return (
     <Card className="flex h-full flex-col gap-3 border-t-4 border-t-green-border px-6 py-4">
@@ -49,12 +40,6 @@ export function AutomatedOrdersCard({ orders, facilityName }: { orders: OrderRow
           View all orders
         </Link>
       </div>
-
-      {pdfError ? (
-        <p role="alert" className="rounded-md border border-red bg-red/5 px-3 py-2 text-sm text-red-dark">
-          Could not generate the PDF: {pdfError}
-        </p>
-      ) : null}
 
       {shown.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted">AiGIS has not raised any purchase orders yet.</p>
@@ -97,16 +82,9 @@ export function AutomatedOrdersCard({ orders, facilityName }: { orders: OrderRow
                       <Tag tone={STATUS_TONE[status]}>{status}</Tag>
                     </td>
                     <td className="px-2 py-1.5 align-middle">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end">
                         <Button aria-label={`View details of ${label}`} onClick={() => setViewedId(order.po.po_id)}>
                           View details
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          aria-label={`Generate PDF for ${label}`}
-                          onClick={() => handleGeneratePdf(order)}
-                        >
-                          Generate PDF
                         </Button>
                       </div>
                     </td>

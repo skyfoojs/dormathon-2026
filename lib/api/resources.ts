@@ -13,7 +13,7 @@ import type {
   WeeklyInventory,
 } from "@/lib/db/types";
 import type { StockProjection } from "@/lib/forecast/runout";
-import type { PoDocument } from "@/lib/orders/poDocument";
+import type { AutomatedOrdersResult } from "@/lib/orders/automatedPurchaseOrders";
 
 export function getFacilities(): Promise<Facility[]> {
   return apiGet<Facility[]>("/api/facilities");
@@ -85,9 +85,6 @@ export type PurchaseOrderDocumentInput = {
 // PO number, i.e. the po_id of its first line.
 export function savePurchaseOrderDocument(id: number, input: PurchaseOrderDocumentInput): Promise<PurchaseOrder[]> {
   return apiFetch<PurchaseOrder[]>(`/api/purchase-orders/${id}`, { method: "PUT", body: JSON.stringify(input) });
-}
-export function getPoDocument(poDocId: number): Promise<PoDocument> {
-  return apiGet<PoDocument>(`/api/po-documents/${poDocId}`);
 }
 export function deletePurchaseOrder(id: number): Promise<void> {
   return apiDelete(`/api/purchase-orders/${id}`);
@@ -168,4 +165,10 @@ export function updatePolicy(id: number, description: string): Promise<Policy> {
 }
 export function deletePolicy(id: number): Promise<void> {
   return apiDelete(`/api/policies/${id}`);
+}
+
+// Asks AiGIS to raise the purchase orders it thinks are needed. With dryRun
+// it returns the plan without saving anything.
+export function runAutomatedPurchaseOrders(dryRun = false): Promise<AutomatedOrdersResult> {
+  return apiPost<AutomatedOrdersResult>("/api/purchase-orders/automated", { dry_run: dryRun });
 }

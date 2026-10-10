@@ -1,7 +1,7 @@
 "use client";
 
 import { DataTable } from "@/components/ui/DataTable";
-import { FileText, ListChecks } from "lucide-react";
+import { ListChecks } from "lucide-react";
 import { IconButton } from "@/components/ui/Button";
 import { RowActions } from "@/components/inventory/RowActions";
 import { Tag, type TagTone } from "@/components/ui/Tag";
@@ -37,14 +37,12 @@ export function PurchaseOrdersTable({
   emptyMessage,
   onMarkReceived,
   onView,
-  onGeneratePdf,
   onDelete,
 }: {
   rows: OrderRow[];
   emptyMessage: string;
   onMarkReceived: (row: OrderRow) => void;
   onView: (row: OrderRow) => void;
-  onGeneratePdf: (row: OrderRow) => void;
   onDelete: (row: OrderRow) => void;
 }) {
   const columns = [
@@ -118,13 +116,6 @@ export function PurchaseOrdersTable({
                 <ListChecks size={20} aria-hidden="true" />
               </IconButton>
             ) : null}
-            <IconButton
-              aria-label={`Generate PDF for ${label}`}
-              title="Generate PDF"
-              onClick={() => onGeneratePdf(row.original)}
-            >
-              <FileText size={18} aria-hidden="true" />
-            </IconButton>
             <RowActions
               label={label}
               // A pending order is with the supplier: it can only be viewed.
