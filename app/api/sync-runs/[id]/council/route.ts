@@ -72,7 +72,7 @@ type Verdict = z.infer<typeof verdictsSchema>["verdicts"][number];
 type ItemForecast = z.infer<typeof forecastsSchema>["forecasts"][number];
 type Review = z.infer<typeof reviewSchema>;
 
-type Tokens = { tokensIn: number; tokensOut: number };
+type Tokens = { tokensIn: number; tokensOut: number; called: boolean };
 type MemberDto = Tokens & {
   seatId: number;
   persona: string;
@@ -230,7 +230,7 @@ function toScreenerDto(calls: CallRow[], screened: ArticleRow[], sourceName: Map
   };
 }
 
-function sumTokens(calls: CallRow[]): Tokens {
+function sumTokens(calls: CallRow[]): Omit<Tokens, "called"> {
   return {
     tokensIn: calls.reduce((sum, c) => sum + (c.tokens_in ?? 0), 0),
     tokensOut: calls.reduce((sum, c) => sum + (c.tokens_out ?? 0), 0),
@@ -279,6 +279,7 @@ function toMemberDto(cycle: 1 | 2, seat: SeatRow, call: CallRow | null, personas
     label: seat.label ?? "",
     tokensIn: call?.tokens_in ?? 0,
     tokensOut: call?.tokens_out ?? 0,
+    called: call !== null,
     error: call ? call.error : "No answer",
     ...parseAnswer(cycle, call),
   };
@@ -290,6 +291,7 @@ function toReviewDto(seat: SeatRow, call: CallRow | null): ReviewDto {
     persona: seat.persona,
     tokensIn: call?.tokens_in ?? 0,
     tokensOut: call?.tokens_out ?? 0,
+    called: call !== null,
     error: call ? call.error : "No review",
     review: call ? (reviewSchema.safeParse(call.output).data ?? null) : null,
   };
@@ -300,6 +302,7 @@ function toChairmanDto(cycle: 1 | 2, call: CallRow | null): ChairmanDto {
     brief: CHAIRMAN_BRIEF,
     tokensIn: call?.tokens_in ?? 0,
     tokensOut: call?.tokens_out ?? 0,
+    called: call !== null,
     error: call ? call.error : "No decision",
     ...parseAnswer(cycle, call),
   };

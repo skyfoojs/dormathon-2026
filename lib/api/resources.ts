@@ -216,7 +216,7 @@ export type CouncilItemForecast = {
   reasoning: string;
 };
 
-type CouncilTokens = { tokensIn: number; tokensOut: number };
+type CouncilTokens = { tokensIn: number; tokensOut: number; called: boolean };
 
 export type CouncilMember = CouncilTokens & {
   seatId: number;
@@ -264,7 +264,7 @@ export type RunCouncil = {
     articles: (ArticleRef & { url: string; publishedAt: string | null })[];
   };
   screener:
-    | (CouncilTokens & {
+    | (Omit<CouncilTokens, "called"> & {
         articles: (ArticleRef & {
           selected: boolean;
           summary: string | null;

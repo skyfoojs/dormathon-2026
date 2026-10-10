@@ -38,7 +38,7 @@ import type { CouncilMember, RunCouncil } from "@/lib/api/resources";
 
 export type NodeStatus = "done" | "running" | "failed" | "pending" | "skipped";
 
-type Look = { kind: "icon"; icon: LucideIcon; tone: "card" | "navy" | "green" } | { kind: "persona"; colorIndex: number; initials: string; pill: string };
+type Look = { kind: "icon"; icon: LucideIcon; tone: "card" | "navy" | "green" } | { kind: "persona"; colorIndex: number; initials: string };
 
 type StepData = {
   title: string;
@@ -132,10 +132,7 @@ function RunningPulse() {
 function NodeFace({ look }: { look: Look }) {
   if (look.kind === "persona") {
     return (
-      <>
-        <span className="text-xl leading-none font-bold">{look.initials}</span>
-        <span className="rounded-full bg-card/90 px-1.5 py-0.5 font-mono text-xs font-medium text-ink">{look.pill}</span>
-      </>
+      <span className="text-xl leading-none font-bold">{look.initials}</span>
     );
   }
   const Icon = look.icon;
@@ -197,6 +194,7 @@ function FlowEdgeView({ id, sourceX, sourceY, targetX, targetY, data }: EdgeProp
     targetPosition: Position.Left,
   });
   const status = data?.status ?? "pending";
+  const dotDelay = (id.length % 7) * 0.3;
   return (
     <g className={cn("transition-opacity duration-700", status === "pending" ? "opacity-0" : "opacity-100")}>
       <path
@@ -221,8 +219,9 @@ function FlowEdgeView({ id, sourceX, sourceY, targetX, targetY, data }: EdgeProp
         </path>
       ) : null}
       {status === "done" ? (
-        <circle r={3.4} fill="var(--color-navy)" opacity={0.85} className="motion-reduce:hidden">
-          <animateMotion dur="2.4s" begin={`${(id.length % 7) * 0.3}s`} repeatCount="indefinite" path={path} />
+        <circle r={3.4} fill="var(--color-navy)" opacity={0.85} visibility="hidden" className="motion-reduce:hidden">
+          <set attributeName="visibility" to="visible" begin={`${dotDelay}s`} fill="freeze" />
+          <animateMotion dur="2.4s" begin={`${dotDelay}s`} repeatCount="indefinite" path={path} />
         </circle>
       ) : null}
     </g>
@@ -232,7 +231,13 @@ function FlowEdgeView({ id, sourceX, sourceY, targetX, targetY, data }: EdgeProp
 const NODE_TYPES = { step: StepNodeView };
 const EDGE_TYPES = { flow: FlowEdgeView };
 
-function statusFor(council: RunCouncil, stageIndex: number, hasData: boolean, nodeFailed = false): NodeStatus {
+function statusFor(
+  council: RunCouncil,
+  stageIndex: number,
+  hasData: boolean,
+  nodeFailed = false,
+  ready = true,
+): NodeStatus {
   if (nodeFailed) return "failed";
   if (council.reused) return hasData ? "done" : "skipped";
   const { status, stage } = council.run;
@@ -240,6 +245,7 @@ function statusFor(council: RunCouncil, stageIndex: number, hasData: boolean, no
   if (status === "succeeded" || stageIndex < current) return hasData ? "done" : "skipped";
   if (stageIndex > current) return "pending";
   if (hasData) return "done";
+  if (!ready) return "pending";
   return status === "failed" ? "failed" : "running";
 }
 
@@ -256,13 +262,17 @@ type GraphNode = { id: string; title: string; subtitle: string; look: Look; stat
 type Column = GraphNode[];
 
 function memberNode(cycle: 1 | 2, member: CouncilMember, index: number, council: RunCouncil): GraphNode {
-  const answered = (cycle === 1 ? member.verdicts : member.forecasts) !== null;
   return {
     id: `c${cycle}-member-${member.seatId}`,
     title: member.persona,
     subtitle: `Cycle ${cycle}`,
-    look: { kind: "persona", colorIndex: index, initials: initials(member.persona), pill: `Resp ${member.label}` },
-    status: statusFor(council, cycle === 1 ? 3 : 4, answered, member.error !== null && !isRunning(council)),
+    look: { kind: "persona", colorIndex: index, initials: initials(member.persona) },
+    status: statusFor(
+      council,
+      cycle === 1 ? 3 : 4,
+      member.called,
+      member.error !== null && (member.called || !isRunning(council)),
+    ),
   };
 }
 
@@ -276,8 +286,11 @@ function cycleColumns(council: RunCouncil, cycle: 1 | 2): Column[] {
   const prefix = `c${cycle}`;
   const task = cycle === 1 ? "Validate news" : "Forecast usage";
   const members = data?.members ?? [];
-  const reviewed = (data?.reviews ?? []).some((r) => r.review !== null);
-  const decided = data !== undefined && (data.chairman.verdicts ?? data.chairman.forecasts) !== null;
+  const opinionsDone = members.length > 0 && members.every((m) => m.called);
+  const expectedReviews = members.filter((m) => m.called && m.error === null).length;
+  const reviewsDone =
+    opinionsDone && expectedReviews > 0 && (data?.reviews ?? []).filter((r) => r.called).length >= expectedReviews;
+  const chairman = data?.chairman;
   return [
     members.length
       ? members.map((m, i) => memberNode(cycle, m, i, council))
@@ -286,7 +299,7 @@ function cycleColumns(council: RunCouncil, cycle: 1 | 2): Column[] {
             id: `${prefix}-members`,
             title: `Cycle ${cycle} personas`,
             subtitle: task,
-            look: { kind: "persona", colorIndex: 0, initials: "4", pill: "Members" },
+            look: { kind: "persona", colorIndex: 0, initials: "4" },
             status: statusFor(council, stageIndex, false),
           },
         ],
@@ -296,7 +309,7 @@ function cycleColumns(council: RunCouncil, cycle: 1 | 2): Column[] {
         title: "Peer review",
         subtitle: `Cycle ${cycle}`,
         look: { kind: "icon", icon: Scale, tone: "card" },
-        status: statusFor(council, stageIndex, reviewed),
+        status: statusFor(council, stageIndex, reviewsDone, false, opinionsDone),
       },
     ],
     [
@@ -305,7 +318,13 @@ function cycleColumns(council: RunCouncil, cycle: 1 | 2): Column[] {
         title: "Chairman",
         subtitle: task,
         look: { kind: "icon", icon: Gavel, tone: "green" },
-        status: statusFor(council, stageIndex, decided),
+        status: statusFor(
+          council,
+          stageIndex,
+          chairman?.called ?? false,
+          chairman !== undefined && chairman.called && chairman.error !== null,
+          reviewsDone,
+        ),
       },
     ],
   ];
