@@ -1,6 +1,6 @@
-import type { ChartMarker, ChartSeries, ChartThreshold } from "@/components/predictions/StockChart";
+import type { ChartArrival, ChartMarker, ChartSeries, ChartThreshold } from "@/components/predictions/StockChart";
 import type { ItemStockProjection } from "@/lib/api/resources";
-import type { RestockTrigger, StockPoint } from "@/lib/forecast/runout";
+import type { Arrival, RestockTrigger, StockPoint } from "@/lib/forecast/runout";
 import { formatQuantity } from "@/lib/data/units";
 
 const THRESHOLD_LABEL: Record<ItemStockProjection["thresholdSource"], string> = {
@@ -65,6 +65,15 @@ export function triggerMarker(
   if (!trigger) return [];
   const value = projection.find((p) => p.date === trigger.date)?.stock ?? threshold;
   return [{ date: trigger.date, value, color }];
+}
+
+export function arrivalMarkers(projection: StockPoint[], arrivals: Arrival[]): ChartArrival[] {
+  return arrivals.map((a) => ({
+    date: a.date,
+    value: projection.find((p) => p.date === a.date)?.stock ?? 0,
+    label: `+${a.qty.toLocaleString()} · PO #${a.poIds.join(", #")}${a.late ? " (late)" : ""}`,
+    late: a.late,
+  }));
 }
 
 export function formatQty(value: number | null | undefined, unit: string): string {

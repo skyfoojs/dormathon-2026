@@ -19,6 +19,8 @@ const MAX_PROJECTION_DAYS = 84;
 
 export type StockPoint = { date: string; stock: number };
 
+export type Arrival = { date: string; qty: number; poIds: number[]; late: boolean };
+
 export type RestockTrigger = {
   date: string;
   daysFromLastActual: number;
@@ -32,7 +34,7 @@ export type StockProjection = {
   history: StockPoint[];
   // Daily points. The first one repeats the last actual so the lines join.
   projection: StockPoint[];
-  arrivals: { date: string; qty: number }[];
+  arrivals: Arrival[];
   dailyDemand: number;
   supplyLevel: number;
   threshold: number;
@@ -65,15 +67,21 @@ export function projectStock(input: {
   // An order already past its expected date has not arrived yet, so the
   // earliest it can land is the first projected day.
   const firstProjectedDay = addDays(lastActual.date, 1);
-  const arrivalQtyByDate = new Map<string, number>();
+  const arrivalByDate = new Map<string, Arrival>();
   for (const po of input.purchaseOrders) {
     if (po.status !== "In transit") continue;
-    const date = po.expected_receipt_date > firstProjectedDay ? po.expected_receipt_date : firstProjectedDay;
-    arrivalQtyByDate.set(date, (arrivalQtyByDate.get(date) ?? 0) + po.qty_ordered);
+    const late = po.expected_receipt_date < firstProjectedDay;
+    const date = late ? firstProjectedDay : po.expected_receipt_date;
+    const arrival = arrivalByDate.get(date) ?? { date, qty: 0, poIds: [], late: false };
+    arrivalByDate.set(date, {
+      date,
+      qty: arrival.qty + po.qty_ordered,
+      poIds: [...arrival.poIds, po.po_id],
+      late: arrival.late || late,
+    });
   }
-  const arrivals = [...arrivalQtyByDate]
-    .map(([date, qty]) => ({ date, qty }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const arrivalQtyByDate = new Map([...arrivalByDate].map(([date, a]) => [date, a.qty]));
+  const arrivals = [...arrivalByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
   const lastArrivalDate = arrivals.length ? arrivals[arrivals.length - 1].date : lastActual.date;
 
   const projection: StockPoint[] = [lastActual];

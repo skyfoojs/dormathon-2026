@@ -43,7 +43,7 @@ export async function findSupplyOrders(itemId?: number): Promise<SupplyOrderRow[
   for (let offset = 0; ; offset += PAGE_SIZE) {
     let query = getDb()
       .from("purchase_orders")
-      .select("item_id, order_date, qty_ordered, expected_receipt_date, actual_receipt_date, qty_received, status");
+      .select("po_id, item_id, order_date, qty_ordered, expected_receipt_date, actual_receipt_date, qty_received, status");
     if (itemId) query = query.eq("item_id", itemId);
     const { data, error } = await query.order("po_id").range(offset, offset + PAGE_SIZE - 1);
     if (error) throw error;

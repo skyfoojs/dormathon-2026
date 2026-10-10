@@ -12,7 +12,7 @@ import type {
   WeeklyInventory,
 } from "@/lib/db/types";
 import type { ItemAccuracy } from "@/lib/forecast/accuracy";
-import type { RestockTrigger, StockPoint } from "@/lib/forecast/runout";
+import type { Arrival, RestockTrigger, StockPoint } from "@/lib/forecast/runout";
 import type { ItemStockStatus } from "@/lib/orders/restockPlan";
 import type { SyncRun, SyncScope } from "@/lib/ai/sync";
 
@@ -141,7 +141,7 @@ type ForecastLine = {
   weeklyForecastQty: number;
   buyQty: number | null;
   projection: StockPoint[];
-  arrivals: { date: string; qty: number }[];
+  arrivals: Arrival[];
   threshold: number;
   trigger: RestockTrigger | null;
   stockoutDate: string | null;

@@ -13,6 +13,7 @@ import { RestockStatus } from "@/components/predictions/RestockStatus";
 import { StockChart } from "@/components/predictions/StockChart";
 import {
   actualSeries,
+  arrivalMarkers,
   averageSeries,
   holtSeries,
   thresholdLine,
@@ -67,6 +68,7 @@ function AlgorithmicChart({ data, line }: { data: ItemStockProjection; line: Alg
       series={series}
       thresholds={[thresholdLine(data, line.threshold)]}
       markers={triggerMarker(line.projection, line.trigger, line.threshold, "var(--color-violet-text)")}
+      arrivals={arrivalMarkers(line.projection, line.arrivals)}
       summary={summary}
     />
   );

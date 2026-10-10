@@ -13,7 +13,14 @@ import { CouncilNodePanel } from "@/components/predictions/CouncilNodePanel";
 import { ItemSelect } from "@/components/predictions/ItemSelect";
 import { RestockStatus } from "@/components/predictions/RestockStatus";
 import { StockChart } from "@/components/predictions/StockChart";
-import { actualSeries, aiSeries, formatQty, thresholdLine, triggerMarker } from "@/components/predictions/forecastSeries";
+import {
+  actualSeries,
+  aiSeries,
+  arrivalMarkers,
+  formatQty,
+  thresholdLine,
+  triggerMarker,
+} from "@/components/predictions/forecastSeries";
 import * as api from "@/lib/api/resources";
 import type { AiForecastLine, ItemStockProjection, RunCouncil } from "@/lib/api/resources";
 import { formatDateTime, formatShortDate } from "@/lib/data/dates";
@@ -62,6 +69,7 @@ function AiChart({ data, line }: { data: ItemStockProjection; line: AiForecastLi
       series={series}
       thresholds={[thresholdLine(data, line.threshold)]}
       markers={triggerMarker(line.projection, line.trigger, line.threshold, "var(--color-amber-border)")}
+      arrivals={arrivalMarkers(line.projection, line.arrivals)}
       summary={`Stock for ${data.itemName} with the AI forecast.`}
     />
   );

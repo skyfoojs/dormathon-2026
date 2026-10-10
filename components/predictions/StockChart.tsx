@@ -29,6 +29,7 @@ export type ChartSeries = {
 
 export type ChartThreshold = { value: number; label: string; color: string; swatch: string };
 export type ChartMarker = { date: string; value: number; color: string };
+export type ChartArrival = { date: string; value: number; label: string; late: boolean };
 
 type Timeframe = "daily" | "monthly" | "yearly" | "all";
 type ChartPoint = { ts: number } & Record<string, number>;
@@ -41,6 +42,7 @@ const TIMEFRAMES: { value: Timeframe; label: string }[] = [
 ];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const Y_HEADROOM = 1.1;
 const AXIS_TICK = { fontSize: 11, fontFamily: "var(--font-mono)", fill: "var(--color-muted)" };
 const LABEL_FONT = { fontSize: 11.5, fontFamily: "var(--font-mono)" };
 const DASH: Record<NonNullable<ChartSeries["dashed"]>, string> = { dash: "7 5", dot: "1 6" };
@@ -69,6 +71,17 @@ function buildPoints(series: ChartSeries[], today: number): ChartPoint[] {
     }
   }
   return [...byTs.values()].sort((a, b) => a.ts - b.ts);
+}
+
+function ArrivalMark({ cx, cy, late }: { cx?: number; cy?: number; late: boolean }) {
+  if (cx === undefined || cy === undefined) return <g />;
+  const r = 6;
+  return (
+    <g stroke={late ? "var(--color-red-dark)" : "var(--color-navy)"} strokeWidth={3} strokeLinecap="round">
+      <line x1={cx - r} y1={cy - r} x2={cx + r} y2={cy + r} />
+      <line x1={cx - r} y1={cy + r} x2={cx + r} y2={cy - r} />
+    </g>
+  );
 }
 
 function seriesSignature(series: ChartSeries[]): string {
@@ -117,11 +130,13 @@ export function StockChart({
   series,
   thresholds = [],
   markers = [],
+  arrivals = [],
   summary,
 }: {
   series: ChartSeries[];
   thresholds?: ChartThreshold[];
   markers?: ChartMarker[];
+  arrivals?: ChartArrival[];
   summary: string;
 }) {
   const [timeframe, setTimeframe] = React.useState<Timeframe>("monthly");
@@ -174,7 +189,7 @@ export function StockChart({
             />
             <YAxis
               width={52}
-              domain={[0, (dataMax: number) => Math.max(dataMax, yMax)]}
+              domain={[0, (dataMax: number) => Math.ceil(Math.max(dataMax, yMax) * Y_HEADROOM)]}
               tick={AXIS_TICK}
               axisLine={false}
               tickLine={false}
@@ -228,6 +243,20 @@ export function StockChart({
                 fill={m.color}
                 stroke="var(--color-card)"
                 strokeWidth={2}
+              />
+            ))}
+            {arrivals.map((a) => (
+              <ReferenceDot
+                key={`arrival-${a.date}`}
+                x={toTs(a.date)}
+                y={Math.round(a.value)}
+                shape={(props: { cx?: number; cy?: number }) => <ArrivalMark cx={props.cx} cy={props.cy} late={a.late} />}
+                label={{
+                  value: a.label,
+                  position: "right",
+                  fill: a.late ? "var(--color-red-dark)" : "var(--color-navy)",
+                  ...LABEL_FONT,
+                }}
               />
             ))}
             <Brush

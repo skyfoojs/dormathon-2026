@@ -24,7 +24,7 @@ export type DailyStockRow = {
 };
 export type SupplyOrderRow = Pick<
   PurchaseOrder,
-  "item_id" | "order_date" | "qty_ordered" | "expected_receipt_date" | "actual_receipt_date" | "qty_received" | "status"
+  "po_id" | "item_id" | "order_date" | "qty_ordered" | "expected_receipt_date" | "actual_receipt_date" | "qty_received" | "status"
 >;
 
 export const DEFAULT_ALPHA = 0.4;

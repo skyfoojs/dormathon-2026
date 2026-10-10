@@ -8,13 +8,15 @@ import { ErrorBanner } from "@/components/ui/Banner";
 import { ItemSelect } from "@/components/predictions/ItemSelect";
 import { RestockStatus } from "@/components/predictions/RestockStatus";
 import { StockChart } from "@/components/predictions/StockChart";
-import { actualSeries, aiSeries, averageSeries, thresholdLine } from "@/components/predictions/forecastSeries";
+import { actualSeries, aiSeries, arrivalMarkers, averageSeries, thresholdLine } from "@/components/predictions/forecastSeries";
 import * as api from "@/lib/api/resources";
 import type { ItemStockProjection } from "@/lib/api/resources";
 
 function OverviewChart({ data }: { data: ItemStockProjection }) {
   const { algorithmic: algo, ai } = data;
   const threshold = algo?.threshold ?? ai?.threshold ?? null;
+  const line = algo ?? ai;
+  const arrivals = line ? arrivalMarkers(line.projection, line.arrivals) : [];
   const series = React.useMemo(
     () => [
       actualSeries(data),
@@ -27,6 +29,7 @@ function OverviewChart({ data }: { data: ItemStockProjection }) {
     <StockChart
       series={series}
       thresholds={threshold === null ? [] : [thresholdLine(data, threshold)]}
+      arrivals={arrivals}
       summary={`Stock for ${data.itemName} with the algorithmic and AI forecasts.`}
     />
   );
