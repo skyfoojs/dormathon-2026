@@ -12,7 +12,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <div className="ml-16 flex min-w-0 flex-1 flex-col">
         <TopBar />
-        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 px-8 py-7">
+        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-x-5 gap-y-3 px-8 py-4">
           {isLoading || facilityId === null ? (
             <p className="p-8 text-center text-muted">Loading facilities{"…"}</p>
           ) : (

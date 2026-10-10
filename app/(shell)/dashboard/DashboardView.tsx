@@ -1,25 +1,38 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import * as React from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { KpiCard } from "@/components/dashboard/KpiCard";
-import { StockChartCard } from "@/components/dashboard/StockChartCard";
-import { ExternalSignalsCard } from "@/components/dashboard/ExternalSignalsCard";
-import { TopWarningsCard } from "@/components/dashboard/TopWarningsCard";
-import { RecentRunsCard } from "@/components/dashboard/RecentRunsCard";
+import { ReportStatusDonut } from "@/components/dashboard/ReportStatusDonut";
+import { PendingReportsCard } from "@/components/dashboard/PendingReportsCard";
+import { ExpectedVsActualCard } from "@/components/dashboard/ExpectedVsActualCard";
+import { ReviewDialog } from "@/components/dashboard/ReviewDialog";
+import { AllReportsDialog } from "@/components/dashboard/AllReportsDialog";
 import { useFacility } from "@/components/providers/FacilityProvider";
-import { useWarnings } from "@/components/providers/WarningsProvider";
 import * as api from "@/lib/api/resources";
 import {
-  getExternalSignals,
-  getHazeKpi,
-  getLowestCoverKpi,
-  getOpenPurchaseOrdersKpi,
-  getRecentPredictionRuns,
-  getStockChartData,
-} from "@/lib/data/dashboard";
+  getExpectedVsActualSeries,
+  getItemsWellStockedKpi,
+  getPendingReports,
+  getPoDeliveredKpi,
+  getPredictionAccuracyKpi,
+  getProductAccuracy,
+  getReportStatusBreakdown,
+} from "@/lib/data/dashboardReports";
+import {
+  isSampleReportId,
+  SAMPLE_PENDING_COUNT,
+  SAMPLE_TOTAL_REPORTS,
+  sampleExpectedVsActual,
+  samplePendingReports,
+  sampleProductAccuracy,
+  sampleReports,
+  sampleStatusBreakdown,
+} from "@/lib/data/dashboardFallback";
+import type { Report, ReportStatus } from "@/lib/db/types";
 
-const CHART_ITEM_ID = 1; // Salbutamol 100mcg MDI inhaler
+const DEFAULT_CHART_ITEM_ID = 1; // Salbutamol 100mcg MDI inhaler
 
 export default function DashboardView() {
   const { facilityId } = useFacility();
@@ -28,127 +41,251 @@ export default function DashboardView() {
 }
 
 function DashboardViewContent({ facilityId }: { facilityId: number }) {
-  const { openWarnings } = useWarnings();
+  const qc = useQueryClient();
+  const [selectedItemId, setSelectedItemId] = React.useState<number>(
+    DEFAULT_CHART_ITEM_ID,
+  );
+  const [reviewing, setReviewing] = React.useState<Report | null>(null);
+  const [allReportsOpen, setAllReportsOpen] = React.useState(false);
+  const [allReportsFilter, setAllReportsFilter] = React.useState<
+    "all" | ReportStatus
+  >("all");
 
   const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
   const weeklyInventoryQuery = useQuery({
     queryKey: ["weekly-inventory", facilityId],
     queryFn: () => api.getWeeklyInventory(facilityId),
   });
-  const hazeQuery = useQuery({ queryKey: ["haze", facilityId], queryFn: () => api.getHaze(facilityId) });
+  const liveHazeQuery = useQuery({
+    queryKey: ["haze-live"],
+    queryFn: api.getLiveHaze,
+  });
   const poQuery = useQuery({
     queryKey: ["purchase-orders", facilityId],
     queryFn: () => api.getPurchaseOrders(facilityId),
   });
-  const liveHazeQuery = useQuery({
-    queryKey: ["haze-live"],
-    queryFn: api.getLiveHaze,
-    staleTime: 10 * 60 * 1000,
-    retry: false,
+  const reportsQuery = useQuery({
+    queryKey: ["reports", facilityId],
+    queryFn: () => api.getReports(facilityId),
   });
+  const forecastsQuery = useQuery({
+    queryKey: ["demand-forecasts", facilityId],
+    queryFn: () => api.getDemandForecasts(facilityId),
+  });
+
+  const invalidateReports = () =>
+    qc.invalidateQueries({ queryKey: ["reports", facilityId] });
+
+  const approveMutation = useMutation({
+    mutationFn: api.approveReport,
+    onSuccess: invalidateReports,
+  });
+  const rejectMutation = useMutation({
+    mutationFn: api.rejectReport,
+    onSuccess: invalidateReports,
+  });
+  const retryMutation = useMutation({
+    mutationFn: api.retryReport,
+    onSuccess: invalidateReports,
+  });
+  const resetMutation = useMutation({
+    mutationFn: () => api.seedReports(facilityId, true),
+    onSuccess: invalidateReports,
+  });
+
+  const loading =
+    itemsQuery.isLoading ||
+    weeklyInventoryQuery.isLoading ||
+    poQuery.isLoading ||
+    reportsQuery.isLoading ||
+    forecastsQuery.isLoading;
+
+  // Seed reports once if this facility has none yet.
+  React.useEffect(() => {
+    if (
+      reportsQuery.data &&
+      reportsQuery.data.length === 0 &&
+      !resetMutation.isPending
+    ) {
+      api.seedReports(facilityId).then(invalidateReports);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportsQuery.data, facilityId]);
+
+  if (loading) {
+    return (
+      <>
+        <PageHeader title="Dashboard" />
+        <p className="text-sm text-muted">
+          Loading data from the database{"…"}
+        </p>
+      </>
+    );
+  }
 
   const items = itemsQuery.data ?? [];
   const weeklyInventory = weeklyInventoryQuery.data ?? [];
-  const hazeRows = hazeQuery.data ?? [];
+  const liveHaze = liveHazeQuery.data ?? null;
   const purchaseOrders = poQuery.data ?? [];
-  const hasData = weeklyInventory.length > 0;
-  const loading = itemsQuery.isLoading || weeklyInventoryQuery.isLoading || poQuery.isLoading;
+  const reports = reportsQuery.data ?? [];
+  const forecasts = forecastsQuery.data ?? [];
 
-  const facilityWarnings = openWarnings.filter((w) => w.facilityId === facilityId);
-  const highCount = facilityWarnings.filter((w) => w.severity === "high").length;
+  const poDelivered = getPoDeliveredKpi(purchaseOrders);
+  const wellStocked = getItemsWellStockedKpi(weeklyInventory);
 
-  const haze = hasData ? getHazeKpi(hazeRows) : null;
-  const lowestCover = hasData ? getLowestCoverKpi(weeklyInventory, items) : null;
-  const openPOs = hasData ? getOpenPurchaseOrdersKpi(purchaseOrders) : null;
-  const chartItem = items.find((i) => i.item_id === CHART_ITEM_ID);
-  const chartData = hasData
-    ? getStockChartData(
-        weeklyInventory.filter((r) => r.item_id === CHART_ITEM_ID),
-        purchaseOrders.filter((po) => po.item_id === CHART_ITEM_ID),
-        hazeRows,
-        chartItem,
-      )
-    : null;
-  const signals = getExternalSignals(haze, liveHazeQuery.data ?? null);
-  const runs = getRecentPredictionRuns(facilityId);
+  // Both the reports workflow and the forecast backtest depend on tables
+  // that may not be migrated yet (see dashboardFallback.ts). When either
+  // comes back empty, fall back to clearly-tagged sample data instead of an
+  // all-zero dashboard.
+  const reportsAreSample = reports.length === 0;
+  const effectiveReports = reportsAreSample ? sampleReports() : reports;
+  const statusBreakdown = reportsAreSample
+    ? sampleStatusBreakdown()
+    : getReportStatusBreakdown(reports);
+  const pendingReports = reportsAreSample
+    ? samplePendingReports()
+    : getPendingReports(reports);
+  const pendingCount = reportsAreSample
+    ? SAMPLE_PENDING_COUNT
+    : reports.filter((r) => r.status === "pending_approval").length;
+  const totalReportsCount = reportsAreSample
+    ? SAMPLE_TOTAL_REPORTS
+    : reports.length;
+
+  const forecastsAreSample = forecasts.length === 0;
+  const productAccuracy = forecastsAreSample
+    ? sampleProductAccuracy(items)
+    : getProductAccuracy(forecasts, items);
+  const accuracyKpi = getPredictionAccuracyKpi(productAccuracy);
+
+  const selectedItem = items.find((i) => i.item_id === selectedItemId);
+  const selectedStats =
+    productAccuracy.find((p) => p.itemId === selectedItemId) ?? null;
+  const chartPoints = forecastsAreSample
+    ? sampleExpectedVsActual(selectedItemId)
+    : getExpectedVsActualSeries(forecasts, selectedItemId);
+
+  function openReview(report: Report) {
+    setReviewing(report);
+  }
 
   return (
     <>
-      <PageHeader
-        title="Dashboard"
-        subtitle="What needs attention at this facility, and what is changing outside."
+      <PageHeader title="Dashboard" />
+
+      <section
+        aria-label="Key indicators"
+        className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-4"
+      >
+        <KpiCard
+          label="Air pollution index"
+          provenance="public-evidence"
+          value={liveHaze ? String(liveHaze.apiAvg) : "—"}
+          sub={
+            liveHaze
+              ? `${liveHaze.category} · ${liveHaze.locationLabel}`
+              : "Live reading unavailable."
+          }
+        />
+        <KpiCard
+          label="Purchase orders delivered"
+          provenance="database"
+          value={`${poDelivered.delivered} of ${poDelivered.total}`}
+          valueTone="green"
+          sub={`${poDelivered.total - poDelivered.delivered} still open`}
+        />
+        <KpiCard
+          label="Prediction accuracy"
+          provenance="synthetic-data"
+          value={
+            accuracyKpi.productCount > 0
+              ? `${accuracyKpi.meanAccuracy.toFixed(1)}%`
+              : "—"
+          }
+          valueTone={
+            accuracyKpi.meanAccuracy >= 90
+              ? "green"
+              : accuracyKpi.meanAccuracy >= 80
+                ? "amber"
+                : "red"
+          }
+          sub={
+            accuracyKpi.productCount > 0
+              ? `All products, ${accuracyKpi.weeksScored} weeks`
+              : "Not enough history yet"
+          }
+        />
+        <KpiCard
+          label="Items well stocked"
+          provenance="model-output"
+          value={`${wellStocked.wellStocked} of ${wellStocked.total}`}
+          sub={`${wellStocked.total - wellStocked.wellStocked} running low`}
+        />
+      </section>
+
+      <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-3">
+        <div className="min-w-0 lg:col-span-1">
+          <ReportStatusDonut
+            breakdown={statusBreakdown}
+            sample={reportsAreSample}
+            onSelectStatus={(status) => {
+              setAllReportsFilter(status);
+              setAllReportsOpen(true);
+            }}
+          />
+        </div>
+        <div className="min-w-0 lg:col-span-2">
+          <PendingReportsCard
+            pending={pendingReports}
+            totalPending={pendingCount}
+            totalReports={totalReportsCount}
+            sample={reportsAreSample}
+            onReview={openReview}
+            onResetSample={() => resetMutation.mutate()}
+            resetting={resetMutation.isPending}
+          />
+        </div>
+      </div>
+
+      <ExpectedVsActualCard
+        itemName={selectedItem?.item_name ?? "Item"}
+        points={chartPoints}
+        stats={selectedStats}
+        products={productAccuracy}
+        selectedItemId={selectedItemId}
+        onSelectItem={setSelectedItemId}
+        sample={forecastsAreSample}
       />
 
-      {loading ? (
-        <p className="text-sm text-muted">Loading data from the database{"…"}</p>
-      ) : (
-        <>
-          <section
-            aria-label="Key indicators"
-            className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-4"
-          >
-            <KpiCard
-              label="Haze API"
-              provenance="database"
-              value={haze ? String(haze.apiAvg) : "—"}
-              sub={haze ? `${haze.category} this week` : "No readings for this facility."}
-            />
-            <KpiCard
-              label="Open warnings"
-              provenance="model-output"
-              value={hasData ? String(facilityWarnings.length) : "—"}
-              valueTone={highCount > 0 ? "red" : "default"}
-              sub={
-                hasData
-                  ? highCount > 0
-                    ? `${highCount} high severity`
-                    : "No high-severity warnings"
-                  : "No data for this facility."
-              }
-            />
-            <KpiCard
-              label="Lowest cover, critical item"
-              provenance="model-output"
-              value={lowestCover ? `${lowestCover.weeksOfCover} wks` : "—"}
-              valueTone={
-                lowestCover
-                  ? lowestCover.weeksOfCover < 1
-                    ? "red"
-                    : lowestCover.weeksOfCover < 2
-                      ? "amber"
-                      : "default"
-                  : "default"
-              }
-              sub={lowestCover ? lowestCover.itemName : "No critical items with cover data."}
-            />
-            <KpiCard
-              label="Open purchase orders"
-              provenance="database"
-              value={openPOs ? String(openPOs.openCount) : "—"}
-              valueTone={openPOs && openPOs.delayedCount > 0 ? "amber" : "default"}
-              sub={
-                openPOs
-                  ? openPOs.delayedCount > 0
-                    ? `${openPOs.delayedCount} delayed${openPOs.nextDueLabel ? `, next ${openPOs.nextDueLabel.toLowerCase()}` : ""}`
-                    : openPOs.nextDueLabel
-                      ? `Next ${openPOs.nextDueLabel.toLowerCase()}`
-                      : "None open"
-                  : "No data for this facility."
-              }
-            />
-          </section>
+      <ReviewDialog
+        report={reviewing}
+        open={reviewing !== null}
+        onOpenChange={(open) => !open && setReviewing(null)}
+        onApprove={(id) => {
+          if (!isSampleReportId(id)) approveMutation.mutate(id);
+          setReviewing(null);
+        }}
+        onReject={(id) => {
+          if (!isSampleReportId(id)) rejectMutation.mutate(id);
+          setReviewing(null);
+        }}
+        onRetry={(id) => {
+          if (!isSampleReportId(id)) retryMutation.mutate(id);
+          setReviewing(null);
+        }}
+        backLabel={allReportsOpen ? "Back to all reports" : "Close"}
+      />
 
-          <div className="flex flex-wrap items-stretch gap-5">
-            <StockChartCard data={chartData} />
-            <ExternalSignalsCard signals={signals} />
-          </div>
-
-          <div className="flex flex-wrap items-stretch gap-5">
-            <TopWarningsCard warnings={facilityWarnings} totalOpenCount={facilityWarnings.length} />
-            <RecentRunsCard runs={runs} />
-          </div>
-        </>
-      )}
+      <AllReportsDialog
+        open={allReportsOpen}
+        onOpenChange={setAllReportsOpen}
+        reports={effectiveReports}
+        initialFilter={allReportsFilter}
+        onReview={(r) => {
+          setAllReportsOpen(false);
+          setReviewing(r);
+        }}
+      />
     </>
   );
 }

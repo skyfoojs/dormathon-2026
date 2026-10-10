@@ -1,18 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { Bell } from "lucide-react";
 import { useFacility } from "@/components/providers/FacilityProvider";
 import { useWarnings } from "@/components/providers/WarningsProvider";
 import { formatFacilitySubtitle } from "@/lib/data/facility";
-import { Label, Select } from "@/components/ui/Input";
 import { CountBadge } from "@/components/ui/Badge";
 
 export function TopBar() {
-  const pathname = usePathname();
-  const showFacilitySelect = pathname === "/dashboard";
-  const { facilities, facilityId, facility, setFacilityId } = useFacility();
+  const { facility } = useFacility();
   const { openCount } = useWarnings();
 
   return (
@@ -20,25 +16,6 @@ export function TopBar() {
       <div className="flex flex-wrap items-center gap-3">
         {!facility ? (
           <span className="text-sm text-muted">Loading facility{"…"}</span>
-        ) : showFacilitySelect ? (
-          <>
-            <Label htmlFor="facility-select">Facility</Label>
-            <Select
-              id="facility-select"
-              value={facilityId ?? ""}
-              onChange={(e) => setFacilityId(Number(e.target.value))}
-              className="min-w-72 w-auto"
-            >
-              {facilities.map((f) => (
-                <option key={f.facility_id} value={f.facility_id}>
-                  {f.facility_name}
-                </option>
-              ))}
-            </Select>
-            <span className="text-sm text-muted">
-              {formatFacilitySubtitle(facility)}
-            </span>
-          </>
         ) : (
           <div className="flex flex-col">
             <span className="font-semibold text-ink">{facility.facility_name}</span>

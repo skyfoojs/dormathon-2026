@@ -1,10 +1,13 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api/client";
 import type {
   Batch,
+  DemandForecast,
   Facility,
   HazeApiWeekly,
   Item,
   PurchaseOrder,
+  Report,
+  ReportStatus,
   Supplier,
   WeeklyInventory,
 } from "@/lib/db/types";
@@ -40,8 +43,20 @@ export function deleteSupplier(id: number): Promise<void> {
   return apiDelete(`/api/suppliers/${id}`);
 }
 
-export function getPurchaseOrders(facilityId: number): Promise<PurchaseOrder[]> {
-  return apiGet<PurchaseOrder[]>(`/api/purchase-orders?facility_id=${facilityId}&pageSize=100`);
+// The route caps pageSize at 100, and a facility can have hundreds of
+// purchase orders, so every caller of this needs the full list: page
+// through until a page comes back short.
+export async function getPurchaseOrders(facilityId: number): Promise<PurchaseOrder[]> {
+  const pageSize = 100;
+  const all: PurchaseOrder[] = [];
+  for (let page = 1; ; page++) {
+    const batch = await apiGet<PurchaseOrder[]>(
+      `/api/purchase-orders?facility_id=${facilityId}&page=${page}&pageSize=${pageSize}`,
+    );
+    all.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+  return all;
 }
 export function createPurchaseOrder(input: Omit<PurchaseOrder, "po_id">): Promise<PurchaseOrder> {
   return apiPost<PurchaseOrder>("/api/purchase-orders", input);
@@ -84,4 +99,28 @@ export function getLiveHaze(): Promise<LiveHaze> {
 
 export function getWarnings(): Promise<WarningRecord[]> {
   return apiGet<WarningRecord[]>("/api/warnings");
+}
+
+export function getReports(facilityId: number, status?: ReportStatus): Promise<Report[]> {
+  const params = new URLSearchParams({ facility_id: String(facilityId) });
+  if (status) params.set("status", status);
+  return apiGet<Report[]>(`/api/reports?${params}`);
+}
+
+export function seedReports(facilityId: number, reset = false): Promise<{ seeded: number }> {
+  return apiPost<{ seeded: number }>("/api/reports/seed", { facility_id: facilityId, reset });
+}
+
+export function approveReport(id: number): Promise<Report> {
+  return apiPatch<Report>(`/api/reports/${id}`, { action: "approve" });
+}
+export function rejectReport(id: number): Promise<Report> {
+  return apiPatch<Report>(`/api/reports/${id}`, { action: "reject" });
+}
+export function retryReport(id: number): Promise<Report> {
+  return apiPatch<Report>(`/api/reports/${id}`, { action: "retry" });
+}
+
+export function getDemandForecasts(facilityId: number): Promise<DemandForecast[]> {
+  return apiGet<DemandForecast[]>(`/api/demand-forecasts?facility_id=${facilityId}`);
 }

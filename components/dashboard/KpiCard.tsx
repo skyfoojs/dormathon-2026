@@ -26,7 +26,7 @@ export function KpiCard({
   sub: string;
 }) {
   return (
-    <Card className="flex min-w-0 flex-col gap-1.5 p-5">
+    <Card className="flex min-w-0 flex-col gap-1.5 px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-mono text-xs font-medium tracking-wide text-muted uppercase">
           {label}

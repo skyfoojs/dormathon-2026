@@ -15,6 +15,11 @@ type FacilityContextValue = {
 
 const FacilityContext = React.createContext<FacilityContextValue | null>(null);
 
+// Facility picking is disabled app-wide: this app only ever shows Sunway
+// Medical Centre. setFacilityId is kept on the context for API shape, but
+// nothing calls it.
+const LOCKED_FACILITY_NAME = "Sunway Medical Centre";
+
 export function FacilityProvider({ children }: { children: React.ReactNode }) {
   const [explicitFacilityId, setFacilityId] = React.useState<number | null>(null);
 
@@ -23,9 +28,8 @@ export function FacilityProvider({ children }: { children: React.ReactNode }) {
     queryFn: getFacilities,
   });
 
-  // Defaults to the first loaded facility until the user picks one, without
-  // a setState-in-effect (which would cause an extra render pass).
-  const facilityId = explicitFacilityId ?? facilities[0]?.facility_id ?? null;
+  const lockedFacilityId = facilities.find((f) => f.facility_name === LOCKED_FACILITY_NAME)?.facility_id ?? null;
+  const facilityId = explicitFacilityId ?? lockedFacilityId ?? facilities[0]?.facility_id ?? null;
   const facility = facilities.find((f) => f.facility_id === facilityId) ?? null;
 
   const value = React.useMemo<FacilityContextValue>(
