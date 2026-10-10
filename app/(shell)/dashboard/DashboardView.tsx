@@ -32,12 +32,12 @@ import type { Report, ReportStatus } from "@/lib/db/types";
 const DEFAULT_CHART_ITEM_ID = 1; // Salbutamol 100mcg MDI inhaler
 
 export default function DashboardView() {
-  const { facilityId, facility } = useFacility();
+  const { facilityId } = useFacility();
   if (facilityId === null) return null;
-  return <DashboardViewContent facilityId={facilityId} facilityName={facility?.facility_name ?? ""} />;
+  return <DashboardViewContent facilityId={facilityId} />;
 }
 
-function DashboardViewContent({ facilityId, facilityName }: { facilityId: number; facilityName: string }) {
+function DashboardViewContent({ facilityId }: { facilityId: number }) {
   const qc = useQueryClient();
   const [selectedItemId, setSelectedItemId] = React.useState<number>(
     DEFAULT_CHART_ITEM_ID,
@@ -223,7 +223,7 @@ function DashboardViewContent({ facilityId, facilityName }: { facilityId: number
           />
         </div>
         <div className="min-w-0 lg:col-span-2">
-          <AutomatedOrdersCard orders={orders} facilityName={facilityName} />
+          <AutomatedOrdersCard orders={orders} />
         </div>
       </div>
 
