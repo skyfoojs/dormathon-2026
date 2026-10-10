@@ -4,7 +4,7 @@ import {
   CalendarDays,
   LineChart,
   Truck,
-  ScrollText,
+  CircleHelp,
   Settings as SettingsIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -26,6 +26,6 @@ export const NAV_ITEMS: NavItem[] = [
 // Setup and reference pages, pinned to the bottom of the sidebar.
 export const NAV_SECONDARY_ITEMS: NavItem[] = [
   { label: "Items", href: "/items", icon: Boxes },
-  { label: "Policies", href: "/policies", icon: ScrollText },
   { label: "Settings", href: "/settings", icon: SettingsIcon },
+  { label: "FAQ", href: "/faq", icon: CircleHelp },
 ];

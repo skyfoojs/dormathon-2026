@@ -3,10 +3,12 @@ import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { errorMessage } from "@/lib/ai/errors";
 import { fetchWhoDiseaseOutbreakNews } from "@/lib/ai/sources/who";
+import { fetchMohPressStatements } from "@/lib/ai/sources/moh";
 import type { FetchedArticle, SourceFetcher } from "@/lib/ai/sources/types";
 
 const SOURCE_FETCHERS: Record<string, SourceFetcher> = {
   "WHO Disease Outbreak News": fetchWhoDiseaseOutbreakNews,
+  "MOH Malaysia Press Statements": fetchMohPressStatements,
 };
 
 const sourceRowSchema = z.object({ source_id: z.number(), name: z.string(), feed_url: z.string() });

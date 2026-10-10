@@ -8,6 +8,7 @@ const envSchema = z.object({
   OPENROUTER_MODEL: z.string().min(1).optional(),
   WAQI_API_TOKEN: z.string().min(1).optional(),
   CRON_SECRET: z.string().min(16).optional(),
+  SCRAPER_API_KEY: z.string().min(1).optional(),
 });
 
 export const env = envSchema.parse({
@@ -18,6 +19,7 @@ export const env = envSchema.parse({
   OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
   WAQI_API_TOKEN: process.env.WAQI_API_TOKEN,
   CRON_SECRET: process.env.CRON_SECRET,
+  SCRAPER_API_KEY: process.env.SCRAPER_API_KEY,
 });
 
 export function isSupabaseConfigured(): boolean {

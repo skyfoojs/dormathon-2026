@@ -26,6 +26,8 @@ const STAGE_LABEL: Record<string, string> = {
   algorithmic_forecast: "Running the algorithmic forecast",
   fetching_news: "Fetching news",
   screening: "Screening news",
+  enriching_moh: "Reading MOH statements",
+  rescreening: "Re-screening news",
   cycle1: "Council validating news",
   cycle2: "Council forecasting usage",
   reusing_last_verdict: "No new news, reusing the last verdict",

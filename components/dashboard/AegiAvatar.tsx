@@ -1,14 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { X } from "lucide-react";
-import { cn } from "@/lib/cn";
+import Link from "next/link";
+import { cn, focusRingClasses } from "@/lib/cn";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Tag } from "@/components/ui/Tag";
 
 // Character SVG only, from dashboard-revamp/aegi-markup.html, pasted
 // verbatim (purely decorative, aria-hidden, no interactive content inside
-// it) - everything structural (.ai-wrap/.ai-girl/.ai-msgs, classes and ids)
-// is rendered as real JSX below so this component can drive it directly.
+// it). Only the character's own animation classes come from aegi.css; the
+// positioning, speech bubbles and controls are real JSX below.
 const GIRL_SVG = `
 <svg width="190" height="226" viewBox="0 0 160 190" aria-hidden="true" style="overflow:visible">
 <defs>
@@ -58,11 +59,9 @@ function lines(pending: number): string[] {
   ];
 }
 
-// Intro timeline (ms from mount), matching the brief's choreography but with
-// a shorter auto-collapse than the original ~17s hold: she only plays the
-// typed-out, one-by-one reveal on this first run. After that she rests
-// tucked at the edge and only expands (instantly, no re-typing) on hover,
-// collapsing again the moment the mouse leaves.
+// Intro timeline (ms from mount). She only plays the typed-out, one-by-one
+// reveal on this first run. Once it ends and nobody is engaging with her,
+// she slides fully off the page and stays away until the next page load.
 const APPEAR_AT = 700; // jumps out from the edge
 const TYPE1_AT = 2200;
 const MSG1_AT = 3500;
@@ -73,11 +72,19 @@ const MSG3_AT = 8600;
 const COLLAPSE_AT = MSG3_AT + 4000; // hold the last message a few seconds, then fade
 const TUCK_AT = COLLAPSE_AT + 900; // then slide back to the edge
 
+// Long enough to move the mouse from her to a speech bubble without the
+// bubbles closing on the way.
+const HOVER_CLOSE_DELAY = 250;
+
+const BUBBLE_CLASSES =
+  "pointer-events-auto flex origin-bottom-right flex-col gap-3 rounded-2xl rounded-br-sm border border-line bg-card px-4 py-3 text-sm leading-relaxed font-medium text-ink shadow-md motion-safe:animate-pop";
+
 type Beat = { at: number; run: () => void };
 
 declare global {
   interface Window {
     __aegiIntroPlayed?: boolean;
+    __aegiDismissed?: boolean;
   }
 }
 
@@ -87,12 +94,16 @@ declare global {
 // navigate away and back, which defeated an earlier attempt at this. `window`
 // itself is the one thing guaranteed to survive for as long as the tab does,
 // and only a true reload (soft or hard) ever recreates it - exactly the
-// "only replay on a real refresh" behavior asked for.
+// "only replay on a real refresh" behavior asked for. Dismissing her lasts
+// just as long, so she doesn't come back on every visit to the Dashboard.
 function hasPlayedIntroThisPageLoad(): boolean {
   return typeof window !== "undefined" && window.__aegiIntroPlayed === true;
 }
 function markIntroPlayed() {
   if (typeof window !== "undefined") window.__aegiIntroPlayed = true;
+}
+function wasDismissedThisPageLoad(): boolean {
+  return typeof window !== "undefined" && window.__aegiDismissed === true;
 }
 
 export function AegiAvatar({
@@ -104,14 +115,17 @@ export function AegiAvatar({
   sample: boolean;
   reviewHref: string;
 }) {
-  const [dismissed, setDismissed] = React.useState(false);
+  const [dismissed, setDismissed] = React.useState(wasDismissedThisPageLoad);
   const [playingIntro, setPlayingIntro] = React.useState(() => !hasPlayedIntroThisPageLoad());
   const [appeared, setAppeared] = React.useState(false); // past the 700ms jump-out
+  const [introCollapsed, setIntroCollapsed] = React.useState(false);
   const [hovering, setHovering] = React.useState(false);
-  const [bubbleCount, setBubbleCount] = React.useState(0);
+  const [pinned, setPinned] = React.useState(false); // opened by click, tap or keyboard
+  const [bubbleCount, setBubbleCount] = React.useState(() => (hasPlayedIntroThisPageLoad() ? 3 : 0));
   const [typing, setTyping] = React.useState(false);
   const [talking, setTalking] = React.useState(false);
 
+  const rootRef = React.useRef<HTMLElement>(null);
   const timers = React.useRef<ReturnType<typeof setTimeout>[]>([]);
   const hoverLeaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -123,8 +137,8 @@ export function AegiAvatar({
   // in her pre-animation state forever - which is exactly what happened.
   React.useEffect(() => {
     // Already played earlier this page load (this is a client-side nav back
-    // to the Dashboard, not a fresh load): rest tucked, ready for hover,
-    // skip the whole intro.
+    // to the Dashboard, not a fresh load): she has already left, so stay
+    // off-screen and skip the whole intro.
     if (!playingIntro) return;
     markIntroPlayed();
 
@@ -135,8 +149,8 @@ export function AegiAvatar({
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     if (reduceMotion) {
-      // No bobbing/typing/bubble-throw: she and the messages simply appear,
-      // then tuck away.
+      // No bobbing/typing/bubble-pop: she and the messages simply appear,
+      // then she leaves.
       after(0, () => {
         setAppeared(true);
         setBubbleCount(3);
@@ -179,7 +193,8 @@ export function AegiAvatar({
           flashTalk();
         },
       },
-      { at: COLLAPSE_AT, run: () => setBubbleCount(0) },
+      // The bubbles stay mounted so they can fade out instead of vanishing.
+      { at: COLLAPSE_AT, run: () => setIntroCollapsed(true) },
       { at: TUCK_AT, run: () => setPlayingIntro(false) },
     ];
 
@@ -192,80 +207,159 @@ export function AegiAvatar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  React.useEffect(() => {
+    return () => {
+      if (hoverLeaveTimer.current) clearTimeout(hoverLeaveTimer.current);
+    };
+  }, []);
+
+  // While she is pinned open, Escape or a click/tap anywhere else closes her.
+  React.useEffect(() => {
+    if (!pinned) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPinned(false);
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setPinned(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [pinned]);
+
   function dismiss() {
     timers.current.forEach(clearTimeout);
     if (hoverLeaveTimer.current) clearTimeout(hoverLeaveTimer.current);
+    window.__aegiDismissed = true;
     setDismissed(true);
   }
 
-  function onEnter() {
-    if (playingIntro || dismissed) return;
+  // Clicking her mid-intro jumps straight to the finished, open state.
+  function skipIntro() {
+    timers.current.forEach(clearTimeout);
+    setPlayingIntro(false);
+    setTyping(false);
+    setTalking(false);
+    setBubbleCount(3);
+    setPinned(true);
+  }
+
+  function onGirlClick() {
+    if (playingIntro) skipIntro();
+    else setPinned((p) => !p);
+  }
+
+  // Hover is mouse-only: a touch never sends a matching "leave", which would
+  // leave her stuck open. Touch and keyboard use the click handler instead.
+  function onPointerEnter(e: React.PointerEvent) {
+    if (e.pointerType !== "mouse") return;
     if (hoverLeaveTimer.current) clearTimeout(hoverLeaveTimer.current);
     setHovering(true);
-    setBubbleCount(3);
   }
-  function onLeave() {
-    if (playingIntro || dismissed) return;
-    hoverLeaveTimer.current = setTimeout(() => {
-      setHovering(false);
-      setBubbleCount(0);
-    }, 150);
+  function onPointerLeave(e: React.PointerEvent) {
+    if (e.pointerType !== "mouse") return;
+    if (hoverLeaveTimer.current) clearTimeout(hoverLeaveTimer.current);
+    hoverLeaveTimer.current = setTimeout(() => setHovering(false), HOVER_CLOSE_DELAY);
   }
 
   if (dismissed) return null;
 
-  const out = playingIntro ? appeared : hovering;
-  const peeked = !playingIntro && !hovering;
+  const open = !playingIntro && (hovering || pinned);
+  const out = playingIntro ? appeared : open;
   const msgs = lines(pending);
-  const showMsgs = bubbleCount > 0 || typing;
+  const showMsgs = playingIntro ? !introCollapsed && (bubbleCount > 0 || typing) : open;
+  const girlLabel = playingIntro ? "Skip Aegi’s introduction" : "Hide Aegi";
 
   return (
-    <>
+    <aside ref={rootRef} aria-label="Aegi, your stock assistant">
       {/* eslint-disable-next-line @next/next/no-css-tags -- public/aegi/aegi.css is
           a static third-party stylesheet that must load only on this route;
           React 19 hoists this into <head>. */}
       <link rel="stylesheet" href="/aegi/aegi.css" />
-      {/* Shrinks the whole character+bubble stack from the provided
-          190x226px size, from a single scale transform so nothing inside
-          aegi.css needs editing. */}
-      <style>{`.ai-wrap{transform:scale(.68);transform-origin:bottom right}.ai-close-btn{z-index:151}.ai-bub.ai-typing{padding:18px 24px}`}</style>
 
+      {/* The character is drawn at a fixed size, so the whole box is scaled
+          from its bottom-right corner, smaller on smaller screens. */}
       <div
-        className="ai-wrap"
-        aria-hidden="true"
-        onMouseEnter={onEnter}
-        onMouseLeave={onLeave}
+        className="pointer-events-none fixed right-0 bottom-4 z-30 h-56 w-56 origin-bottom-right scale-40 sm:scale-50 xl:scale-60"
+        onPointerEnter={onPointerEnter}
+        onPointerLeave={onPointerLeave}
       >
+        {/* Out, she stands a little clear of the page edge. Otherwise the
+            base .ai-girl transform holds her more than her own width past
+            the right edge, so she is fully off the page at every size. */}
         <div
-          id="aegiGirl"
-          className={cn("ai-girl", out && "ai-out", peeked && "ai-peek", talking && "ai-talk")}
-          dangerouslySetInnerHTML={{ __html: GIRL_SVG }}
-        />
+          className={cn(
+            "absolute inset-0 transition-transform duration-500 ease-out motion-reduce:transition-none",
+            out && "-translate-x-8",
+          )}
+        >
+          <div
+            id="aegiGirl"
+            aria-hidden="true"
+            className={cn(
+              "ai-girl",
+              out && "ai-out",
+              // The jump-in is for the intro only; it must not replay when
+              // the intro is skipped.
+              !playingIntro && "ai-steady",
+              // Leaving uses its own slower curve. The default one is tuned
+              // for the bouncy entrance and would whisk her away in a blink.
+              !playingIntro && !out && "ai-leave",
+              talking && "ai-talk",
+            )}
+            dangerouslySetInnerHTML={{ __html: GIRL_SVG }}
+          />
+        </div>
+        {/* The click and hover target. It does not move with her animation,
+            so she can't slide out from under the pointer. Gone once she
+            leaves. */}
+        {out ? (
+          <button
+            type="button"
+            onClick={onGirlClick}
+            aria-expanded={showMsgs}
+            aria-label={girlLabel}
+            className={cn("pointer-events-auto absolute inset-0 cursor-pointer rounded-lg", focusRingClasses)}
+          />
+        ) : null}
       </div>
 
+      {/* Above her on a phone, to her left from the sm breakpoint up. */}
       <div
         id="aegiMsgs"
-        className={cn("ai-msgs", !showMsgs && "ai-msgs-off")}
-        aria-live="polite"
         role="status"
-        onMouseEnter={onEnter}
-        onMouseLeave={onLeave}
+        aria-live="polite"
+        inert={!showMsgs}
+        className={cn(
+          "pointer-events-none fixed inset-x-4 bottom-32 z-30 flex flex-col items-end gap-2 transition duration-200 sm:right-30 sm:bottom-8 sm:left-auto sm:max-w-sm xl:right-36",
+          showMsgs ? "sm:pointer-events-auto" : "translate-x-4 opacity-0",
+        )}
+        onPointerEnter={onPointerEnter}
+        onPointerLeave={onPointerLeave}
       >
         {msgs.slice(0, bubbleCount).map((text, i) => (
-          <div key={i} className="ai-bub">
-            <div>{text}</div>
-            {i === 2 && pending > 0 ? (
-              <div className="mt-2.5 flex items-center gap-2.5">
-                <a className="ai-cta" href={reviewHref}>
-                  Review now
-                </a>
-                {sample ? <Tag tone="dashed">Sample data</Tag> : null}
+          <div key={i} className={BUBBLE_CLASSES}>
+            <p>{text}</p>
+            {i === 2 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {pending > 0 ? (
+                  <Link href={reviewHref} className={buttonClasses("primary")}>
+                    Review now
+                  </Link>
+                ) : null}
+                <Button variant="ghost" onClick={dismiss}>
+                  Dismiss
+                </Button>
+                {pending > 0 && sample ? <Tag tone="dashed">Sample data</Tag> : null}
               </div>
             ) : null}
           </div>
         ))}
         {typing ? (
-          <div className="ai-bub ai-typing">
+          <div className={BUBBLE_CLASSES}>
             <span className="ai-dots">
               <i />
               <i />
@@ -274,15 +368,6 @@ export function AegiAvatar({
           </div>
         ) : null}
       </div>
-
-      <button
-        type="button"
-        onClick={dismiss}
-        aria-label="Dismiss Aegi"
-        className="ai-close-btn fixed right-2 bottom-60 flex h-8 w-8 items-center justify-center rounded-full border border-line bg-card text-muted shadow-sm transition-colors duration-150 hover:bg-page hover:text-ink focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-blue-light"
-      >
-        <X size={16} aria-hidden="true" />
-      </button>
-    </>
+    </aside>
   );
 }

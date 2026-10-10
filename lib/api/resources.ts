@@ -5,15 +5,16 @@ import type {
   Facility,
   HazeApiWeekly,
   Item,
-  Policy,
   PurchaseOrder,
   Report,
   ReportStatus,
   Supplier,
   WeeklyInventory,
 } from "@/lib/db/types";
+import type { ItemAccuracy } from "@/lib/forecast/accuracy";
 import type { RestockTrigger, StockPoint } from "@/lib/forecast/runout";
 import type { AutomatedOrdersResult } from "@/lib/orders/automatedPurchaseOrders";
+import type { ItemStockStatus } from "@/lib/orders/restockPlan";
 import type { SyncRun, SyncScope } from "@/lib/ai/sync";
 
 export function getFacilities(): Promise<Facility[]> {
@@ -335,21 +336,18 @@ export function getDemandForecasts(facilityId: number): Promise<DemandForecast[]
   return apiGet<DemandForecast[]>(`/api/demand-forecasts?facility_id=${facilityId}`);
 }
 
-export function getPolicies(): Promise<Policy[]> {
-  return apiGet<Policy[]>("/api/policies?pageSize=100");
-}
-export function createPolicy(description: string): Promise<Policy> {
-  return apiPost<Policy>("/api/policies", { description });
-}
-export function updatePolicy(id: number, description: string): Promise<Policy> {
-  return apiPatch<Policy>(`/api/policies/${id}`, { description });
-}
-export function deletePolicy(id: number): Promise<void> {
-  return apiDelete(`/api/policies/${id}`);
-}
-
 // Asks AiGIS to raise the purchase orders it thinks are needed. With dryRun
 // it returns the plan without saving anything.
 export function runAutomatedPurchaseOrders(dryRun = false): Promise<AutomatedOrdersResult> {
   return apiPost<AutomatedOrdersResult>("/api/purchase-orders/automated", { dry_run: dryRun });
+}
+
+// Whether each item is well stocked or running low, from its prediction.
+export function getStockStatus(): Promise<ItemStockStatus[]> {
+  return apiGet<ItemStockStatus[]>("/api/stock-status?pageSize=100");
+}
+
+// Weekly prediction accuracy for every item, most accurate first.
+export function getForecastAccuracy(): Promise<ItemAccuracy[]> {
+  return apiGet<ItemAccuracy[]>("/api/forecast-accuracy?pageSize=100");
 }

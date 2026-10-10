@@ -10,7 +10,7 @@ export type TagTone =
   | "red"
   | "green";
 
-const TONE_CLASSES: Record<TagTone, string> = {
+export const TONE_CLASSES: Record<TagTone, string> = {
   navy: "bg-navy text-white border-navy",
   blue: "bg-blue-tint text-navy border-blue-border",
   amber: "bg-amber-bg text-amber-text border-amber-border",

@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { ErrorBanner } from "@/components/ui/Banner";
 import { ProvenanceTag, Tag } from "@/components/ui/Tag";
 import { StatTile } from "@/components/ui/StatTile";
+import { StepList } from "@/components/ui/StepList";
 import { ItemSelect } from "@/components/predictions/ItemSelect";
 import { RestockStatus } from "@/components/predictions/RestockStatus";
 import { StockChart } from "@/components/predictions/StockChart";
@@ -22,9 +23,12 @@ import type { AlgorithmicForecastLine, ItemStockProjection } from "@/lib/api/res
 import { formatDateTime } from "@/lib/data/dates";
 
 const STEPS = [
-  { title: "Read the daily usage", text: "Units issued plus unmet demand per day, from the daily stock counts." },
+  {
+    title: "Read the daily usage",
+    text: "Units issued plus unmet demand per day, from the daily stock counts, with the day-of-week pattern taken out.",
+  },
   { title: "Holt linear trend", text: "Smooths the daily level and trend, then extends the trend with damping so it fades." },
-  { title: "Weighted moving average", text: "Averages the last 28 days, newest days counting most. Flat going forward." },
+  { title: "Weighted moving average", text: "Averages the last 56 days, newest days counting most. Flat going forward." },
   {
     title: "Weighted average of the two",
     text: "The method that was more accurate on past days gets more weight (25% to 75%). This is the planning forecast.",
@@ -108,7 +112,7 @@ export function AlgorithmicForecast({
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatTile label="Holt trend, per day" value={perDay(line.holtPerDay)} />
-            <StatTile label="Moving avg 28d, per day" value={perDay(line.wmaPerDay)} />
+            <StatTile label="Moving avg 56d, per day" value={perDay(line.wmaPerDay)} />
             <StatTile label="Planning forecast, per day" value={perDay(line.usagePerDay)} />
             <StatTile label="Methods differ by" value={methodGap(line)} />
           </div>
@@ -125,19 +129,7 @@ export function AlgorithmicForecast({
                 Two methods, then a weighted average. Both use only the daily stock counts in your database.
                 {line.holtWeight !== null ? ` Holt gets ${Math.round(line.holtWeight * 100)}% of the weight for this item.` : ""}
               </p>
-              <ol className="flex flex-col divide-y divide-line border-t border-line">
-                {STEPS.map((step, i) => (
-                  <li key={step.title} className="flex items-start gap-3 py-2.5">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-blue-border bg-blue-tint font-mono text-xs text-navy">
-                      {i + 1}
-                    </span>
-                    <div>
-                      <p className="text-sm font-semibold">{step.title}</p>
-                      <p className="text-sm text-strong-muted">{step.text}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
+              <StepList steps={STEPS} />
             </div>
           </div>
         </>
