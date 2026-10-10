@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api/client";
+import { apiDelete, apiFetch, apiGet, apiPatch, apiPost } from "@/lib/api/client";
 import type {
   Batch,
   Facility,
@@ -8,6 +8,7 @@ import type {
   Supplier,
   WeeklyInventory,
 } from "@/lib/db/types";
+import type { PoDocument } from "@/lib/orders/poDocument";
 
 export function getFacilities(): Promise<Facility[]> {
   return apiGet<Facility[]>("/api/facilities");
@@ -39,14 +40,46 @@ export function deleteSupplier(id: number): Promise<void> {
   return apiDelete(`/api/suppliers/${id}`);
 }
 
-export function getPurchaseOrders(facilityId: number): Promise<PurchaseOrder[]> {
-  return apiGet<PurchaseOrder[]>(`/api/purchase-orders?facility_id=${facilityId}&pageSize=100`);
+// The API caps a page at 100 rows, so this pages until a short page comes back.
+export async function getPurchaseOrders(facilityId: number): Promise<PurchaseOrder[]> {
+  const pageSize = 100;
+  const rows: PurchaseOrder[] = [];
+  for (let page = 1; ; page++) {
+    const batch = await apiGet<PurchaseOrder[]>(
+      `/api/purchase-orders?facility_id=${facilityId}&pageSize=${pageSize}&page=${page}`,
+    );
+    rows.push(...batch);
+    if (batch.length < pageSize) return rows;
+  }
 }
 export function createPurchaseOrder(input: Omit<PurchaseOrder, "po_id">): Promise<PurchaseOrder> {
   return apiPost<PurchaseOrder>("/api/purchase-orders", input);
 }
 export function updatePurchaseOrder(id: number, input: Omit<PurchaseOrder, "po_id">): Promise<PurchaseOrder> {
   return apiPatch<PurchaseOrder>(`/api/purchase-orders/${id}`, input);
+}
+export type PurchaseOrderDocumentInput = {
+  supplier_id: number;
+  order_date: string;
+  expected_receipt_date: string;
+  status: PurchaseOrder["status"];
+  actual_receipt_date: string | null;
+  lines: {
+    po_id?: number;
+    item_id: number;
+    qty_ordered: number;
+    unit_cost_myr: number;
+    qty_received: number | null;
+  }[];
+};
+
+// Saves a whole order: its header and every line item. `id` is the order's
+// PO number, i.e. the po_id of its first line.
+export function savePurchaseOrderDocument(id: number, input: PurchaseOrderDocumentInput): Promise<PurchaseOrder[]> {
+  return apiFetch<PurchaseOrder[]>(`/api/purchase-orders/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+export function getPoDocument(poDocId: number): Promise<PoDocument> {
+  return apiGet<PoDocument>(`/api/po-documents/${poDocId}`);
 }
 export function deletePurchaseOrder(id: number): Promise<void> {
   return apiDelete(`/api/purchase-orders/${id}`);

@@ -1,15 +1,18 @@
 "use client";
 
 import { DataTable } from "@/components/ui/DataTable";
-import { Button } from "@/components/ui/Button";
+import { FileText, ListChecks } from "lucide-react";
+import { IconButton } from "@/components/ui/Button";
 import { RowActions } from "@/components/inventory/RowActions";
 import { Tag, type TagTone } from "@/components/ui/Tag";
 import { createTableColumnHelper } from "@/lib/table/features";
 import { formatShortDate } from "@/lib/data/dates";
 import { getPurchaseOrderDisplayStatus, type PurchaseOrderDisplayStatus } from "@/lib/data/purchaseOrders";
-import type { PurchaseOrderRow } from "@/lib/data/inventory";
+import type { OrderRow } from "@/lib/data/inventory";
+import type { PurchaseOrderCreator } from "@/lib/db/types";
 
-const STATUS_TONE: Record<PurchaseOrderDisplayStatus, TagTone> = {
+export const STATUS_TONE: Record<PurchaseOrderDisplayStatus, TagTone> = {
+  Draft: "dashed",
   "On the way": "blue",
   "Due today": "amber",
   Delayed: "red",
@@ -17,37 +20,57 @@ const STATUS_TONE: Record<PurchaseOrderDisplayStatus, TagTone> = {
   Cancelled: "grey",
 };
 
+export const CREATOR_TONE: Record<PurchaseOrderCreator, TagTone> = {
+  Manual: "grey",
+  AiGIS: "green",
+};
+
 const MYR = new Intl.NumberFormat("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const QTY = new Intl.NumberFormat("en-MY");
 
-const helper = createTableColumnHelper<PurchaseOrderRow>();
+const ORDERS_PER_PAGE = 5;
+
+const helper = createTableColumnHelper<OrderRow>();
 
 export function PurchaseOrdersTable({
   rows,
   emptyMessage,
   onMarkReceived,
+  onView,
+  onGeneratePdf,
   onEdit,
   onDelete,
 }: {
-  rows: PurchaseOrderRow[];
+  rows: OrderRow[];
   emptyMessage: string;
-  onMarkReceived: (row: PurchaseOrderRow) => void;
-  onEdit: (row: PurchaseOrderRow) => void;
-  onDelete: (row: PurchaseOrderRow) => void;
+  onMarkReceived: (row: OrderRow) => void;
+  onView: (row: OrderRow) => void;
+  onGeneratePdf: (row: OrderRow) => void;
+  onEdit: (row: OrderRow) => void;
+  onDelete: (row: OrderRow) => void;
 }) {
   const columns = [
     helper.accessor((r) => r.po.po_id, {
       id: "po",
       header: "PO number",
-      cell: ({ row }) => <span className="font-mono">PO-{row.original.po.po_id}</span>,
+      cell: ({ row }) => (
+        <button
+          type="button"
+          aria-label={`View PO-${row.original.po.po_id} line items`}
+          onClick={() => onView(row.original)}
+          className="rounded font-mono font-medium text-navy underline underline-offset-2 transition-colors duration-150 hover:text-ink focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-blue-light"
+        >
+          PO-{row.original.po.po_id}
+        </button>
+      ),
     }),
     helper.accessor((r) => r.supplierName, { id: "supplier", header: "Supplier" }),
-    helper.accessor((r) => r.po.qty_ordered, {
+    helper.accessor((r) => r.qtyOrdered, {
       id: "qty",
       header: "Quantity",
-      cell: ({ row }) => <span className="font-mono">{QTY.format(row.original.po.qty_ordered)}</span>,
+      cell: ({ getValue }) => <span className="font-mono">{QTY.format(getValue())}</span>,
     }),
-    helper.accessor((r) => r.po.qty_ordered * r.po.unit_cost_myr, {
+    helper.accessor((r) => r.totalValue, {
       id: "total",
       header: "Total (MYR)",
       cell: ({ getValue }) => <span className="font-mono">{MYR.format(getValue())}</span>,
@@ -61,6 +84,11 @@ export function PurchaseOrdersTable({
       id: "due",
       header: "Expected",
       cell: ({ row }) => formatShortDate(row.original.po.expected_receipt_date),
+    }),
+    helper.accessor((r) => r.po.created_by ?? "Manual", {
+      id: "createdBy",
+      header: "Created by",
+      cell: ({ getValue }) => <Tag tone={CREATOR_TONE[getValue()]}>{getValue()}</Tag>,
     }),
     helper.display({
       id: "status",
@@ -83,13 +111,25 @@ export function PurchaseOrdersTable({
         return (
           <div className="flex items-center gap-2">
             {row.original.po.status === "In transit" ? (
-              <Button aria-label={`Mark ${label} received`} onClick={() => onMarkReceived(row.original)}>
-                Mark received
-              </Button>
+              <IconButton
+                variant="secondary"
+                aria-label={`Mark ${label} received`}
+                title="Mark received"
+                onClick={() => onMarkReceived(row.original)}
+              >
+                <ListChecks size={20} aria-hidden="true" />
+              </IconButton>
             ) : null}
+            <IconButton
+              aria-label={`Generate PDF for ${label}`}
+              title="Generate PDF"
+              onClick={() => onGeneratePdf(row.original)}
+            >
+              <FileText size={18} aria-hidden="true" />
+            </IconButton>
             <RowActions
               label={label}
-              onEdit={() => onEdit(row.original)}
+              onEdit={row.original.po.status === "Draft" ? () => onEdit(row.original) : undefined}
               onDelete={() => onDelete(row.original)}
             />
           </div>
@@ -104,6 +144,7 @@ export function PurchaseOrdersTable({
       data={rows}
       getRowId={(r) => String(r.po.po_id)}
       emptyMessage={emptyMessage}
+      pageSize={ORDERS_PER_PAGE}
     />
   );
 }

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<title>Pesanan Tempatan {{po_number}}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 10.5pt; color: #000; margin: 0; }
+  .page { max-width: 178mm; margin: 0 auto; }
+  .topright { text-align: right; font-size: 8.5pt; font-weight: bold; line-height: 1.4; }
+  h1 { text-align: center; font-size: 11.5pt; margin: 22px 0 18px; line-height: 1.35; }
+  .meta { width: 100%; border-collapse: collapse; }
+  .meta td { padding: 3px 0; vertical-align: bottom; }
+  .meta td.label { width: 32%; font-weight: bold; }
+  .meta td.value { border-bottom: 1px solid #000; }
+  .meta td.value::before { content: ": "; }
+  .meta td.plain { font-weight: bold; }
+  .meta td.plain::before { content: ": "; }
+  table.items { width: 100%; border-collapse: collapse; margin-top: 14px; }
+  table.items th, table.items td { border: 1px solid #000; padding: 5px 6px; }
+  table.items th { font-size: 9.5pt; text-align: center; }
+  table.items td.c { text-align: center; }
+  table.items td.r { text-align: right; }
+  table.items tr.total td { font-weight: bold; }
+  .checks { margin: 16px 0 0 10px; }
+  .check { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .box { width: 46px; height: 24px; border: 1px solid #000; text-align: center; line-height: 22px; font-weight: bold; margin-right: 40px; flex: none; }
+  .fill { display: inline-block; min-width: 150px; border-bottom: 1px dotted #000; padding: 0 4px; }
+  .sign { display: flex; justify-content: space-between; margin-top: 30px; }
+  .sign .line { display: inline-block; width: 200px; border-bottom: 1px dotted #000; }
+  hr { border: 0; border-top: 1.5px solid #000; margin: 10px 0 14px; }
+  h2 { font-size: 10.5pt; margin: 0 0 12px; }
+  p { margin: 0 0 8px; line-height: 1.5; text-align: justify; }
+  .small { font-size: 9pt; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="topright">
+    {{facility_name}}<br>
+    NO. PESANAN: {{po_number}}
+  </div>
+
+  <h1>PESANAN TEMPATAN<br>(PEROLEHAN BEKALAN/PERKHIDMATAN/KERJA)</h1>
+
+  <table class="meta">
+    <tr><td class="label">NAMA PEMOHON</td><td class="value">{{requester_name}}</td></tr>
+    <tr><td class="label">JAWATAN</td><td class="value">{{requester_position}}</td></tr>
+    <tr><td class="label">PERIHAL PEROLEHAN</td><td class="value">{{description}}</td></tr>
+    <tr><td class="label">PEMBEKAL</td><td class="value">{{supplier_name}}</td></tr>
+    <tr><td class="label">TARIKH PESANAN</td><td class="value">{{order_date}}</td></tr>
+    <tr><td class="label">TARIKH JANGKA TERIMA</td><td class="value">{{expected_receipt_date}}</td></tr>
+    <tr><td class="label" style="padding-top:12px">KAEDAH PEROLEHAN</td><td class="plain" style="padding-top:12px">{{procurement_method}}</td></tr>
+  </table>
+
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="width:8%">BIL.</th>
+        <th>PERIHAL<br>BEKALAN/PERKHIDMATAN/KERJA</th>
+        <th style="width:18%">HARGA SEUNIT<br>(RM)</th>
+        <th style="width:13%">KUANTITI</th>
+        <th style="width:17%">JUMLAH<br>(RM)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#lines}}
+      <tr>
+        <td class="c">{{bil}}</td>
+        <td>{{description}}</td>
+        <td class="r">{{unit_cost}}</td>
+        <td class="c">{{qty}}</td>
+        <td class="r">{{amount}}</td>
+      </tr>
+      {{/lines}}
+      <tr class="total">
+        <td colspan="4" class="r">JUMLAH KESELURUHAN (RM)</td>
+        <td class="r">{{total}}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="checks">
+    <div class="check">
+      <span>&#9642; Bekalan/Perkhidmatan/Kerja Adalah Perolehan Kali Pertama Dalam Tahun Semasa.</span>
+      <span class="box">{{^is_repeat_purchase}}&#10003;{{/is_repeat_purchase}}</span>
+    </div>
+    <div class="check">
+      <span>&#9642; Bekalan/Perkhidmatan/Kerja Adalah Perolehan Berulang Dalam Tahun Semasa.<br>
+        &nbsp;&nbsp;Jika Ya, nyatakan nilai perolehan sebelumnya : RM <span class="fill">{{previous_purchase_value}}</span></span>
+      <span class="box">{{#is_repeat_purchase}}&#10003;{{/is_repeat_purchase}}</span>
+    </div>
+  </div>
+
+  <div class="sign">
+    <span>Tandatangan Pemohon : <span class="line">&nbsp;</span></span>
+    <span>Tarikh : <span class="fill">{{requested_at}}</span></span>
+  </div>
+  <hr>
+
+  <h2>PERAKUAN KETUA JABATAN/SUB/TSUB/KPSU/PSU</h2>
+  <p>
+    Peruntukan Objek Sebagai <span class="fill">{{budget_object_code}}</span> berbaki
+    RM <span class="fill">{{budget_balance}}</span> mencukupi bagi menampung perolehan ini.
+    Permohonan perolehan RM <span class="fill">{{total}}</span>
+    <strong><span class="fill">{{hod_decision}}</span></strong> secara
+    <strong>{{procurement_method}}</strong>.
+  </p>
+  <div class="sign">
+    <span>
+      <span class="line">&nbsp;</span><br>
+      Tandatangan Ketua Jabatan<br>
+      {{hod_name}}<br>
+      {{hod_position}}
+    </span>
+    <span>Tarikh : <span class="fill">{{hod_decided_at}}</span></span>
+  </div>
+  <hr>
+
+  <h2>KEPUTUSAN BAHAGIAN/UNIT KEWANGAN : <span class="fill">{{finance_decision}}</span></h2>
+  <div class="sign">
+    <span>
+      <span class="line">&nbsp;</span><br>
+      Tandatangan Pegawai Pelulus<br>
+      {{finance_officer_name}}<br>
+      {{finance_officer_position}}
+    </span>
+    <span>Tarikh : <span class="fill">{{finance_decided_at}}</span></span>
+  </div>
+
+  <p class="small" style="margin-top:22px">Dokumen ini dijana oleh sistem.</p>
+
+</div>
+</body>
+</html>
