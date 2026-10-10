@@ -2,6 +2,8 @@
 .ai-wrap{position:fixed;right:0;bottom:84px;z-index:150;width:190px;height:226px;pointer-events:none}
 .ai-girl{position:absolute;right:0;bottom:0;width:190px;height:226px;pointer-events:auto;transform:translateX(112%) rotate(10deg);transform-origin:100% 100%;transition:transform .9s cubic-bezier(.2,1.5,.35,1)}
 .ai-girl.ai-out{transform:none;animation:aijump .9s cubic-bezier(.3,0,.3,1) both}
+/* After the intro she slides between tucked and out, without replaying the jump from off-screen. */
+.ai-girl.ai-out.ai-steady{animation:none}
 .ai-girl.ai-peek{transform:translateX(50%) rotate(-3deg);transition:transform .9s cubic-bezier(.5,0,.3,1)}
 @keyframes aijump{0%{transform:translateX(112%) rotate(10deg)}45%{transform:translateX(-10%) translateY(-26px) rotate(-5deg)}70%{transform:translateX(2%) translateY(4px) rotate(1deg)}100%{transform:none}}
 .ai-sway{transform-origin:50% 100%;animation:aisway 4.4s ease-in-out infinite}
