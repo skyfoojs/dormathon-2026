@@ -290,7 +290,7 @@ What the sources confirm:
 | EPD field | Your column | Rule |
 | --- | --- | --- |
 | `PRACTICE_CODE` | `facility_id` | One integer per practice, kept in a lookup table |
-| `BNF_CODE` (first 9 characters = chemical substance) | `item_id` | One `items` row per chemical substance. Salbutamol 0301011R0, ipratropium 0301020I0, budesonide 0302000C0 |
+| `BNF_CODE` (first 9 characters = chemical substance) | `item_id` | One `items` row per chemical substance. Salbutamol 0301011R0, ipratropium 0301020I0, budesonide 0302000K0 |
 | `YEAR_MONTH` | `week_start` | Spread each month evenly over its days, then sum into Monday-start weeks |
 | `TOTAL_QUANTITY` | `issued_qty` | Weekly share of the month, rounded. If the unit is doses rather than inhalers, use `ITEMS` instead |
 | `ACTUAL_COST` / `TOTAL_QUANTITY` | `items.unit_cost_myr` | Multiply by a fixed GBP to MYR rate and record the rate you used |
@@ -299,7 +299,7 @@ What the sources confirm:
 ```python
 import pandas as pd
 
-keep = ("0301011R0", "0301020I0", "0302000C0")   # confirm in the BNF
+keep = ("0301011R0", "0301020I0", "0302000K0")   # confirm in the BNF
 cols = ["YEAR_MONTH", "PRACTICE_CODE", "BNF_CODE", "TOTAL_QUANTITY", "ACTUAL_COST"]  # confirm names
 
 frames = []
