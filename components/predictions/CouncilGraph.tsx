@@ -377,16 +377,14 @@ function buildColumns(council: RunCouncil): Column[] {
   return columns;
 }
 
-type Layout = { nodes: StepNode[]; edges: FlowEdge[]; centers: Map<string, { x: number; y: number }> };
+type Layout = { nodes: StepNode[]; edges: FlowEdge[] };
 
 function buildGraph(council: RunCouncil, selectedId: string | null, onSelect: (id: string) => void): Layout {
   const columns = buildColumns(council);
   const tallest = Math.max(...columns.map((c) => c.length));
-  const centers = new Map<string, { x: number; y: number }>();
   const nodes = columns.flatMap((column, col) =>
     column.map((node, row): StepNode => {
       const center = { x: col * COLUMN_WIDTH, y: (row - (column.length - 1) / 2 + (tallest - 1) / 2) * ROW_HEIGHT };
-      centers.set(node.id, center);
       return {
         id: node.id,
         type: "step",
@@ -416,7 +414,7 @@ function buildGraph(council: RunCouncil, selectedId: string | null, onSelect: (i
       ),
     ),
   );
-  return { nodes, edges, centers };
+  return { nodes, edges };
 }
 
 function ZoomControls() {
@@ -474,19 +472,23 @@ function Flow({
   onSelect: (id: string) => void;
 }) {
   const flow = useReactFlow();
-  const { nodes, edges, centers } = React.useMemo(
+  const { nodes, edges } = React.useMemo(
     () => buildGraph(council, selectedId, onSelect),
     [council, selectedId, onSelect],
   );
 
+  const width = useStore((s) => s.width);
+  const focusedId = React.useRef<string | null>(null);
+
   React.useEffect(() => {
-    const center = selectedId ? centers.get(selectedId) : undefined;
-    if (!center) return;
+    if (selectedId) focusedId.current = selectedId;
+    const node = focusedId.current ? flow.getNode(focusedId.current) : undefined;
+    if (!node || width === 0) return;
     const frame = requestAnimationFrame(() =>
-      flow.setCenter(center.x, center.y, { zoom: flow.getZoom(), duration: 500 }),
+      flow.setCenter(node.position.x, node.position.y, { zoom: flow.getZoom(), duration: 500 }),
     );
     return () => cancelAnimationFrame(frame);
-  }, [selectedId, centers, flow]);
+  }, [selectedId, width, flow]);
 
   return (
     <ReactFlow
