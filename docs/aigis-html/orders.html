@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AiGIS Orders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0C4B87;--ink:#0A2540;--muted:#4A6078;--strong-muted:#2B4560;--line:#D6DFE8;--line-strong:#6B8199;
+  --page:#F3F6F9;--card:#FFFFFF;--blue-light:#3DA5E0;--blue-tint:#E1F0FA;--blue-hover:#EAF3FA;--blue-border:#9CCBEA;
+  --red:#D9293B;--red-dark:#B01E2F;--red-tint:#FCE8EA;--amber-bg:#FDEBC2;--amber-text:#5C3A00;--amber-border:#E0A92E;
+  --green-tint:#E3F4EA;--green-text:#12633A;--green-border:#8FCFA9;--calc-tint:#E6ECF2;--calc-text:#1D3A57;--calc-border:#C3D0DD;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font-family:'Archivo',system-ui,sans-serif;font-size:15px;line-height:1.5}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--blue-light);outline-offset:2px}
+
+.shell{display:flex;min-height:100vh}
+aside{flex:none;width:248px;background:var(--card);border-right:1px solid var(--line);padding:12px 8px;display:flex;flex-direction:column;gap:20px}
+aside img{width:164px;height:auto;display:block;margin:0 4px}
+.nav{display:flex;align-items:center;gap:12px;min-height:44px;padding:0 12px;border-radius:8px;color:var(--ink);text-decoration:none;font-weight:600;font-size:15px}
+.nav:hover{background:var(--blue-hover)}
+.nav-on,.nav-on:hover{background:var(--navy);color:#fff}
+.badge{margin-left:auto;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:var(--red);color:#fff;font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.nav-on .badge{background:#fff;color:var(--red-dark)}
+
+main{flex:1;min-width:0;padding:24px 32px 48px;display:flex;flex-direction:column;gap:20px;max-width:1280px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500}
+h1{margin:0;font-size:28px;font-weight:700;line-height:1.2}
+.sub{margin:4px 0 0;color:var(--muted)}
+.head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px}
+.num{font-family:var(--mono);white-space:nowrap}
+
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.stat{padding:16px 20px;display:flex;flex-direction:column;gap:4px}
+.stat b{font-family:var(--mono);font-size:26px;font-weight:500;line-height:1.1}
+.stat span{font-size:13px;color:var(--muted)}
+.stat.alert{border-color:var(--red);box-shadow:inset 4px 0 0 var(--red)}
+
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-radius:6px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:background-color .15s}
+.chip:hover{background:var(--blue-tint)}
+.chip[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.chip .n{border-radius:999px;padding:0 6px;font-family:var(--mono);font-size:12px;background:var(--page)}
+.chip[aria-pressed="true"] .n{background:rgba(255,255,255,.2)}
+.search{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 12px;border:1.5px solid var(--line);border-radius:6px;background:var(--card);width:100%;max-width:320px}
+.search input{border:0;outline:0;font:inherit;font-size:14px;flex:1;min-width:0;background:transparent;color:var(--ink)}
+.search:focus-within{outline:3px solid var(--blue-light);outline-offset:2px}
+
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:12px 16px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--page)}
+th:first-child{border-top-left-radius:10px}
+th:last-child{border-top-right-radius:10px}
+td{padding:12px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#FAFCFD}
+th.r,td.r{text-align:right}
+.item{font-weight:600}
+.small{font-size:12px;color:var(--muted)}
+.empty{padding:40px 16px;text-align:center;color:var(--muted)}
+
+.tag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:3px;font-weight:500;white-space:nowrap}
+.t-blue{background:var(--blue-tint);color:var(--navy);border:1px solid var(--blue-border)}
+.t-amber{background:var(--amber-bg);color:var(--amber-text);border:1px solid var(--amber-border)}
+.t-red{background:var(--red);color:#fff;border:1px solid var(--red)}
+.t-green{background:var(--green-tint);color:var(--green-text);border:1px solid var(--green-border)}
+.t-grey{background:var(--calc-tint);color:var(--calc-text);border:1px solid var(--calc-border)}
+.status{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+
+.btn{min-height:36px;padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;border:1.5px solid var(--navy);background:transparent;color:var(--navy);white-space:nowrap}
+.btn:hover{background:var(--blue-tint)}
+.btn-p{background:var(--navy);color:#fff;min-height:44px;padding:8px 16px;font-size:14px;border-width:2px}
+.btn-p:hover{background:#0A3E70}
+
+.note{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--strong-muted);padding:12px 16px}
+.note .tag{flex:none}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;display:flex;gap:12px;align-items:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.show{opacity:1;pointer-events:auto}
+.toast button{background:transparent;border:0;color:var(--blue-light);font:inherit;font-weight:600;cursor:pointer}
+
+@media (max-width:900px){
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:720px){
+  aside{display:none}
+  main{padding:16px}
+  .search{max-width:none}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside>
+    <img src="aigis-logo.png" alt="AiGIS, AI Guardian Intelligence System">
+    <nav aria-label="Main" style="display:flex;flex-direction:column;gap:4px">
+      <a class="nav" href="dashboard.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Dashboard</a>
+      <a class="nav" href="inventory.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>Inventory</a>
+      <a class="nav" href="predictions.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M16 7h5v5"/></svg>Predictions</a>
+      <a class="nav nav-on" href="orders.html" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>Orders<span class="badge" id="navBadge" aria-label="delayed orders"></span></a>
+      <a class="nav" href="insights.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>Insights</a>
+      <a class="nav" href="settings.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</a>
+    </nav>
+  </aside>
+
+  <main>
+    <div class="head">
+      <div>
+        <span class="eyebrow">Facility · Hospital Kuala Lumpur</span>
+        <h1>Orders</h1>
+        <p class="sub" id="subtitle"></p>
+      </div>
+      <a class="btn btn-p" href="inventory.html">Add purchase order</a>
+    </div>
+
+    <section class="stats" aria-label="Order summary">
+      <div class="card stat"><b id="sTransit">0</b><span>In transit</span></div>
+      <div class="card stat alert"><b id="sDelayed">0</b><span>Delayed, past expected date</span></div>
+      <div class="card stat"><b id="sWeek">0</b><span>Arriving in the next 7 days</span></div>
+      <div class="card stat"><b id="sValue">0</b><span>Value in transit (MYR)</span></div>
+    </section>
+
+    <div class="toolbar">
+      <div class="chips" role="group" aria-label="Filter by status" id="chips"></div>
+      <label class="search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="color:var(--muted)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <span class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Search orders</span>
+        <input id="q" type="search" placeholder="Search PO, item or supplier">
+      </label>
+    </div>
+
+    <div class="card">
+      <div class="tablewrap">
+        <table>
+          <thead id="thead"></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card note"><span class="tag t-grey">Mockup</span><span>Sample data only, not connected to the database. Today is fixed at 10 Oct 2026 so the delayed and due-today states show.</span></div>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMsg"></span><button id="undo" type="button">Undo</button></div>
+
+<script>
+const TODAY = new Date('2026-10-10T00:00:00');
+const SUP = {1:'Nusantara Medicines Sdn Bhd',2:'Selangor Pharma Supply',3:'Klang Medical Disposables',4:'Borneo Biologics'};
+const ITEM = {
+  1:['Salbutamol 100mcg MDI inhaler','inhaler'],2:['Amoxicillin-clavulanate 625mg','tablet'],3:['Dexamethasone 4mg/mL injection','ampoule'],
+  4:['N95 respirator','piece'],5:['Prednisolone 5mg tablet','tablet'],6:['Oseltamivir 75mg capsule','capsule'],
+  7:['Ipratropium 0.5mg nebule','nebule'],8:['Surgical mask, 3-ply','piece']
+};
+// status mirrors purchase_orders.status: In transit | Delivered | Cancelled
+let POS = [
+  {id:1031,item:4,sup:3,qty:6000,cost:1.85,ordered:'2026-09-08',due:'2026-09-12',recv:'2026-09-12',qtyRecv:6000,status:'Delivered'},
+  {id:1034,item:2,sup:2,qty:1200,cost:0.92,ordered:'2026-09-12',due:'2026-09-17',recv:'2026-09-19',qtyRecv:1150,status:'Delivered'},
+  {id:1036,item:8,sup:3,qty:10000,cost:0.18,ordered:'2026-09-15',due:'2026-09-19',recv:null,qtyRecv:null,status:'Cancelled'},
+  {id:1038,item:3,sup:1,qty:300,cost:3.40,ordered:'2026-09-18',due:'2026-09-25',recv:'2026-09-24',qtyRecv:300,status:'Delivered'},
+  {id:1040,item:5,sup:2,qty:2000,cost:0.11,ordered:'2026-09-22',due:'2026-09-29',recv:'2026-09-29',qtyRecv:2000,status:'Delivered'},
+  {id:1041,item:3,sup:4,qty:200,cost:3.65,ordered:'2026-09-24',due:'2026-10-06',recv:null,qtyRecv:null,status:'In transit'},
+  {id:1042,item:1,sup:1,qty:300,cost:14.20,ordered:'2026-10-01',due:'2026-10-08',recv:null,qtyRecv:null,status:'In transit'},
+  {id:1043,item:7,sup:1,qty:600,cost:1.10,ordered:'2026-10-03',due:'2026-10-10',recv:null,qtyRecv:null,status:'In transit'},
+  {id:1045,item:4,sup:3,qty:4000,cost:1.85,ordered:'2026-10-07',due:'2026-10-11',recv:null,qtyRecv:null,status:'In transit'},
+  {id:1044,item:6,sup:2,qty:400,cost:6.75,ordered:'2026-10-06',due:'2026-10-16',recv:null,qtyRecv:null,status:'In transit'},
+  {id:1046,item:2,sup:2,qty:1600,cost:0.92,ordered:'2026-10-08',due:'2026-10-13',recv:null,qtyRecv:null,status:'In transit'},
+  {id:1047,item:8,sup:3,qty:12000,cost:0.18,ordered:'2026-10-09',due:'2026-10-14',recv:null,qtyRecv:null,status:'In transit'},
+  {id:1048,item:6,sup:4,qty:250,cost:7.10,ordered:'2026-10-09',due:'2026-10-21',recv:null,qtyRecv:null,status:'In transit'}
+];
+
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmtDate = (s) => { const d = new Date(s + 'T00:00:00'); return d.getDate() + ' ' + MON[d.getMonth()]; };
+const days = (s) => Math.round((new Date(s + 'T00:00:00') - TODAY) / 86400000);
+const fmtN = (n) => n.toLocaleString('en-MY');
+const fmtMYR = (n) => n.toLocaleString('en-MY', {minimumFractionDigits:2, maximumFractionDigits:2});
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// Same rules as getPurchaseOrderDisplayStatus in lib/data/purchaseOrders.ts
+function display(po) {
+  if (po.status === 'Delivered') {
+    const short = po.qtyRecv < po.qty ? ' · ' + fmtN(po.qty - po.qtyRecv) + ' short' : '';
+    return {label:'Received', tone:'t-green', note:'On ' + fmtDate(po.recv) + short};
+  }
+  if (po.status === 'Cancelled') return {label:'Cancelled', tone:'t-grey', note:''};
+  const d = days(po.due);
+  if (d < 0) return {label:'Delayed', tone:'t-red', note:Math.abs(d) + ' day' + (Math.abs(d) === 1 ? '' : 's') + ' late'};
+  if (d === 0) return {label:'Due today', tone:'t-amber', note:''};
+  return {label:'On the way', tone:'t-blue', note:d === 1 ? 'Due tomorrow' : 'Due in ' + d + ' days'};
+}
+
+const FILTERS = [
+  {id:'In transit', label:'In transit'},
+  {id:'Delivered', label:'Delivered'},
+  {id:'Cancelled', label:'Cancelled'},
+  {id:'all', label:'All'}
+];
+let filter = 'In transit';
+let lastUndo = null;
+
+function render() {
+  const transit = POS.filter((p) => p.status === 'In transit');
+  const delayed = transit.filter((p) => days(p.due) < 0);
+  const week = transit.filter((p) => days(p.due) >= 0 && days(p.due) <= 7);
+  const value = transit.reduce((s, p) => s + p.qty * p.cost, 0);
+
+  document.getElementById('subtitle').textContent =
+    transit.length + ' purchase orders in transit, ' + delayed.length + ' past their expected date.';
+  document.getElementById('sTransit').textContent = transit.length;
+  document.getElementById('sDelayed').textContent = delayed.length;
+  document.getElementById('sWeek').textContent = week.length;
+  document.getElementById('sValue').textContent = fmtMYR(value);
+  const badge = document.getElementById('navBadge');
+  badge.textContent = delayed.length;
+  badge.style.display = delayed.length ? '' : 'none';
+
+  const count = (id) => id === 'all' ? POS.length : POS.filter((p) => p.status === id).length;
+  document.getElementById('chips').innerHTML = FILTERS.map((f) =>
+    `<button type="button" class="chip" aria-pressed="${filter === f.id}" data-f="${f.id}">${f.label}<span class="n">${count(f.id)}</span></button>`
+  ).join('');
+
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  let rows = POS.filter((p) => filter === 'all' || p.status === filter);
+  if (q) rows = rows.filter((p) => ('po-' + p.id + ' ' + ITEM[p.item][0] + ' ' + SUP[p.sup]).toLowerCase().includes(q));
+  // In transit: soonest expected first, so delayed rise to the top. Others: newest order first.
+  rows.sort(filter === 'In transit' ? (a, b) => a.due.localeCompare(b.due) : (a, b) => b.ordered.localeCompare(a.ordered));
+
+  const showAction = filter === 'In transit' || filter === 'all';
+  document.getElementById('thead').innerHTML = `<tr>
+    <th>PO number</th><th>Item</th><th>Supplier</th><th class="r">Quantity</th><th class="r">Total (MYR)</th>
+    <th>Ordered</th><th>Expected</th><th>Status</th>${showAction ? '<th><span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Actions</span></th>' : ''}</tr>`;
+
+  const cols = showAction ? 9 : 8;
+  if (!rows.length) {
+    document.getElementById('tbody').innerHTML = `<tr><td class="empty" colspan="${cols}">${
+      q ? 'No orders match “' + esc(q) + '”.' : filter === 'In transit' ? 'Nothing in transit. Every order has arrived or been cancelled.' : 'No orders in this view.'
+    }</td></tr>`;
+    return;
+  }
+
+  document.getElementById('tbody').innerHTML = rows.map((p) => {
+    const s = display(p);
+    const [name, unit] = ITEM[p.item];
+    const action = showAction
+      ? `<td>${p.status === 'In transit' ? `<button type="button" class="btn" data-recv="${p.id}" aria-label="Mark PO-${p.id} received">Mark received</button>` : ''}</td>`
+      : '';
+    return `<tr>
+      <td class="num">PO-${p.id}</td>
+      <td><div class="item">${esc(name)}</div><div class="small">${fmtMYR(p.cost)} per ${unit}</div></td>
+      <td>${esc(SUP[p.sup])}</td>
+      <td class="r num">${fmtN(p.qty)}</td>
+      <td class="r num">${fmtMYR(p.qty * p.cost)}</td>
+      <td class="num">${fmtDate(p.ordered)}</td>
+      <td class="num">${fmtDate(p.due)}</td>
+      <td><div class="status"><span class="tag ${s.tone}">${s.label}</span>${s.note ? `<span class="small">${s.note}</span>` : ''}</div></td>
+      ${action}
+    </tr>`;
+  }).join('');
+}
+
+let toastTimer;
+function toast(msg) {
+  document.getElementById('toastMsg').textContent = msg;
+  const t = document.getElementById('toast');
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 5000);
+}
+
+document.getElementById('chips').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-f]');
+  if (b) { filter = b.dataset.f; render(); }
+});
+document.getElementById('tbody').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-recv]');
+  if (!b) return;
+  const po = POS.find((p) => p.id === Number(b.dataset.recv));
+  lastUndo = {...po};
+  Object.assign(po, {status:'Delivered', recv:'2026-10-10', qtyRecv:po.qty});
+  render();
+  toast('PO-' + po.id + ' marked received in full.');
+});
+document.getElementById('undo').addEventListener('click', () => {
+  if (!lastUndo) return;
+  const i = POS.findIndex((p) => p.id === lastUndo.id);
+  POS[i] = lastUndo; lastUndo = null;
+  document.getElementById('toast').classList.remove('show');
+  render();
+});
+document.getElementById('q').addEventListener('input', render);
+render();
+</script>
+</body>
+</html>

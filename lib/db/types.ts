@@ -71,10 +71,15 @@ export type WeeklyInventory = {
 // Matches the real database's values, confirmed against live data:
 // "In transit" and "Delivered" are the only values currently in use;
 // "Cancelled" is allowed by the column but not currently used.
+// "Draft" is an order still being prepared: it can be edited, and it does
+// not count as incoming stock until it moves to "In transit".
 export type PurchaseOrderStatus =
+  | "Draft"
   | "In transit"
   | "Delivered"
   | "Cancelled";
+
+export type PurchaseOrderCreator = "Manual" | "AiGIS";
 
 export type PurchaseOrder = {
   po_id: number;
@@ -88,6 +93,12 @@ export type PurchaseOrder = {
   actual_receipt_date: string | null; // ISO date
   qty_received: number | null;
   status: PurchaseOrderStatus;
+  // Not in the database yet. Until the column is added, rows arrive without
+  // it and are treated as "Manual".
+  created_by?: PurchaseOrderCreator | null;
+  // Groups the rows that belong to one PO document. Null when the order has
+  // no document, in which case the row is its own single line item.
+  po_doc_id?: number | null;
 };
 
 export type Batch = {

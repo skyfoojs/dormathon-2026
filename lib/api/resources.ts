@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api/client";
+import { apiDelete, apiFetch, apiGet, apiPatch, apiPost } from "@/lib/api/client";
 import type {
   Batch,
   DemandForecast,
@@ -12,7 +12,7 @@ import type {
   WeeklyInventory,
 } from "@/lib/db/types";
 import type { StockProjection } from "@/lib/forecast/runout";
-import type { WarningRecord } from "@/lib/data/warnings";
+import type { PoDocument } from "@/lib/orders/poDocument";
 
 export function getFacilities(): Promise<Facility[]> {
   return apiGet<Facility[]>("/api/facilities");
@@ -65,6 +65,29 @@ export function createPurchaseOrder(input: Omit<PurchaseOrder, "po_id">): Promis
 export function updatePurchaseOrder(id: number, input: Omit<PurchaseOrder, "po_id">): Promise<PurchaseOrder> {
   return apiPatch<PurchaseOrder>(`/api/purchase-orders/${id}`, input);
 }
+export type PurchaseOrderDocumentInput = {
+  supplier_id: number;
+  order_date: string;
+  expected_receipt_date: string;
+  status: PurchaseOrder["status"];
+  actual_receipt_date: string | null;
+  lines: {
+    po_id?: number;
+    item_id: number;
+    qty_ordered: number;
+    unit_cost_myr: number;
+    qty_received: number | null;
+  }[];
+};
+
+// Saves a whole order: its header and every line item. `id` is the order's
+// PO number, i.e. the po_id of its first line.
+export function savePurchaseOrderDocument(id: number, input: PurchaseOrderDocumentInput): Promise<PurchaseOrder[]> {
+  return apiFetch<PurchaseOrder[]>(`/api/purchase-orders/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+export function getPoDocument(poDocId: number): Promise<PoDocument> {
+  return apiGet<PoDocument>(`/api/po-documents/${poDocId}`);
+}
 export function deletePurchaseOrder(id: number): Promise<void> {
   return apiDelete(`/api/purchase-orders/${id}`);
 }
@@ -107,10 +130,6 @@ export type LiveHaze = {
 
 export function getLiveHaze(): Promise<LiveHaze> {
   return apiGet<LiveHaze>("/api/haze-live");
-}
-
-export function getWarnings(): Promise<WarningRecord[]> {
-  return apiGet<WarningRecord[]>("/api/warnings");
 }
 
 export function getReports(facilityId: number, status?: ReportStatus): Promise<Report[]> {

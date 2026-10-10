@@ -6,14 +6,11 @@ import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { NAV_ITEMS } from "@/lib/nav";
-import { useWarnings } from "@/components/providers/WarningsProvider";
 import { Tag } from "@/components/ui/Tag";
-import { CountBadge } from "@/components/ui/Badge";
 
 export function Sidebar() {
   const [expanded, setExpanded] = React.useState(false);
   const pathname = usePathname();
-  const { openCount } = useWarnings();
 
   return (
     <>
@@ -73,17 +70,12 @@ export function Sidebar() {
           {NAV_ITEMS.map((item) => {
             const isActive = pathname?.startsWith(item.href);
             const Icon = item.icon;
-            const isWarnings = item.href === "/warnings";
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 aria-current={isActive ? "page" : undefined}
-                aria-label={
-                  isWarnings
-                    ? `${item.label}, ${openCount} to resolve`
-                    : item.label
-                }
+                aria-label={item.label}
                 onClick={() => setExpanded(false)}
                 className={cn(
                   "relative flex min-h-11 items-center gap-3 rounded-md px-2.5 font-semibold text-ink no-underline transition-colors duration-150",
@@ -95,16 +87,6 @@ export function Sidebar() {
                 <span className={cn(!expanded && "sr-only")}>
                   {item.label}
                 </span>
-                {isWarnings && openCount > 0 ? (
-                  <CountBadge
-                    count={openCount}
-                    className={cn(
-                      expanded
-                        ? "ml-auto"
-                        : "absolute top-0.5 right-0.5",
-                    )}
-                  />
-                ) : null}
               </Link>
             );
           })}
