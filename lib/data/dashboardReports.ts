@@ -1,4 +1,4 @@
-import type { DemandForecast, Item, PurchaseOrder, Report, ReportStatus, WeeklyInventory } from "@/lib/db/types";
+import type { DemandForecast, Item, PurchaseOrder, PurchaseOrderStatus, WeeklyInventory } from "@/lib/db/types";
 
 export type PoDeliveredKpi = { delivered: number; total: number };
 
@@ -31,15 +31,15 @@ export type ProductAccuracy = {
   accuracy: number; // 0-100
   avgMissUnits: number;
   weeksWithin10Pct: number;
-  weeksScored: number;
+  weeksScored: number; // days actually scored (name kept for the shared card)
 };
 
-// Accuracy = 100 - mean absolute percentage error, floored at 0. Only rows
-// with a known actual (i.e. the target week has closed) count.
+// Accuracy = 100 - mean absolute percentage error, floored at 0. Only
+// forecasts whose day has real recorded usage count.
 export function getProductAccuracy(forecasts: DemandForecast[], items: Item[]): ProductAccuracy[] {
   const byItem = new Map<number, DemandForecast[]>();
   for (const f of forecasts) {
-    if (f.actual_qty === null || f.avg_qty === null) continue;
+    if (f.actual_qty === null) continue;
     const list = byItem.get(f.item_id) ?? [];
     list.push(f);
     byItem.set(f.item_id, list);
@@ -48,8 +48,8 @@ export function getProductAccuracy(forecasts: DemandForecast[], items: Item[]): 
   const out: ProductAccuracy[] = [];
   for (const [itemId, rows] of byItem) {
     if (rows.length === 0) continue;
-    const errors = rows.map((r) => Math.abs(r.avg_qty! - r.actual_qty!));
-    const pctErrors = rows.map((r) => (r.actual_qty === 0 ? 0 : Math.abs(r.avg_qty! - r.actual_qty!) / r.actual_qty!));
+    const errors = rows.map((r) => Math.abs(r.expected_qty - r.actual_qty!));
+    const pctErrors = rows.map((r) => (r.actual_qty === 0 ? 0 : Math.abs(r.expected_qty - r.actual_qty!) / r.actual_qty!));
     const mape = pctErrors.reduce((a, b) => a + b, 0) / pctErrors.length;
     const accuracy = Math.max(0, 100 - mape * 100);
     const avgMissUnits = errors.reduce((a, b) => a + b, 0) / errors.length;
@@ -84,32 +84,21 @@ export type ExpectedVsActualPoint = {
 export function getExpectedVsActualSeries(forecasts: DemandForecast[], itemId: number): ExpectedVsActualPoint[] {
   return forecasts
     .filter((f) => f.item_id === itemId)
-    .sort((a, b) => a.target_week_start.localeCompare(b.target_week_start))
+    .sort((a, b) => a.forecast_date.localeCompare(b.forecast_date))
     .map((f) => ({
-      weekStart: f.target_week_start,
+      weekStart: f.forecast_date,
       actual: f.actual_qty,
-      expected: f.avg_qty,
+      expected: f.expected_qty,
     }));
 }
 
-export const REPORT_STATUSES: ReportStatus[] = [
-  "pending_approval",
-  "delivery_failed",
-  "sent",
-  "confirmed_by_supplier",
-  "rejected",
-];
+export const PO_STATUS_ORDER: PurchaseOrderStatus[] = ["Pending", "In transit", "Delivered", "Cancelled"];
 
-export function getReportStatusBreakdown(reports: Report[]): { status: ReportStatus; count: number }[] {
-  return REPORT_STATUSES.map((status) => ({
+export function getPurchaseOrderStatusBreakdown(
+  purchaseOrders: PurchaseOrder[],
+): { status: PurchaseOrderStatus; count: number }[] {
+  return PO_STATUS_ORDER.map((status) => ({
     status,
-    count: reports.filter((r) => r.status === status).length,
+    count: purchaseOrders.filter((po) => po.status === status).length,
   }));
-}
-
-export function getPendingReports(reports: Report[], limit = 5): Report[] {
-  return reports
-    .filter((r) => r.status === "pending_approval")
-    .sort((a, b) => a.generated_at.localeCompare(b.generated_at))
-    .slice(0, limit);
 }

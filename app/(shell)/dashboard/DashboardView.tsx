@@ -2,14 +2,12 @@
 
 import * as React from "react";
 import { format } from "date-fns";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DashboardKpiCard } from "@/components/dashboard/DashboardKpiCard";
-import { ReportStatusDonut } from "@/components/dashboard/ReportStatusDonut";
+import { PurchaseOrderStatusDonut } from "@/components/dashboard/PurchaseOrderStatusDonut";
 import { AutomatedOrdersCard } from "@/components/dashboard/AutomatedOrdersCard";
 import { ExpectedVsActualCard } from "@/components/dashboard/ExpectedVsActualCard";
-import { ReviewDialog } from "@/components/dashboard/ReviewDialog";
-import { AllReportsDialog } from "@/components/dashboard/AllReportsDialog";
 import { AegiAvatar } from "@/components/dashboard/AegiAvatar";
 import { useFacility } from "@/components/providers/FacilityProvider";
 import * as api from "@/lib/api/resources";
@@ -26,17 +24,9 @@ import {
   getPoDeliveredKpi,
   getPredictionAccuracyKpi,
   getProductAccuracy,
-  getReportStatusBreakdown,
+  getPurchaseOrderStatusBreakdown,
 } from "@/lib/data/dashboardReports";
-import {
-  isSampleReportId,
-  SAMPLE_PENDING_COUNT,
-  sampleExpectedVsActual,
-  sampleProductAccuracy,
-  sampleReports,
-  sampleStatusBreakdown,
-} from "@/lib/data/dashboardFallback";
-import type { Report, ReportStatus } from "@/lib/db/types";
+import { sampleExpectedVsActual, sampleProductAccuracy } from "@/lib/data/dashboardFallback";
 
 const DEFAULT_CHART_ITEM_ID = 1; // Salbutamol 100mcg MDI inhaler
 
@@ -59,24 +49,13 @@ export default function DashboardView() {
 // chart/table query there to resolve - and so she never unmounts/remounts
 // when that content's own loading state changes.
 function AegiHost({ facilityId }: { facilityId: number }) {
-  const reportsQuery = useQuery({
-    queryKey: ["reports", facilityId],
-    queryFn: () => api.getReports(facilityId),
+  const poQuery = useQuery({
+    queryKey: ["purchase-orders", facilityId],
+    queryFn: () => api.getPurchaseOrders(facilityId),
   });
-  const reports = reportsQuery.data ?? [];
-  const reportsAreSample =
-    reportsQuery.data === undefined || reports.length === 0;
-  const pendingCount = reportsAreSample
-    ? SAMPLE_PENDING_COUNT
-    : reports.filter((r) => r.status === "pending_approval").length;
+  const pendingCount = (poQuery.data ?? []).filter((po) => po.status === "Pending").length;
 
-  return (
-    <AegiAvatar
-      pending={pendingCount}
-      sample={reportsAreSample}
-      reviewHref="/orders"
-    />
-  );
+  return <AegiAvatar pending={pendingCount} sample={false} reviewHref="/orders" />;
 }
 
 function DashboardViewContent({
@@ -86,16 +65,9 @@ function DashboardViewContent({
   facilityId: number;
   facilityName: string;
 }) {
-  const qc = useQueryClient();
   const [selectedItemId, setSelectedItemId] = React.useState<number>(
     DEFAULT_CHART_ITEM_ID,
   );
-  const [reviewing, setReviewing] = React.useState<Report | null>(null);
-  const [allReportsOpen, setAllReportsOpen] = React.useState(false);
-  const [allReportsFilter, setAllReportsFilter] = React.useState<
-    "all" | ReportStatus
-  >("all");
-
   const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
   const suppliersQuery = useQuery({
     queryKey: ["suppliers"],
@@ -113,53 +85,16 @@ function DashboardViewContent({
     queryKey: ["purchase-orders", facilityId],
     queryFn: () => api.getPurchaseOrders(facilityId),
   });
-  const reportsQuery = useQuery({
-    queryKey: ["reports", facilityId],
-    queryFn: () => api.getReports(facilityId),
-  });
   const forecastsQuery = useQuery({
     queryKey: ["demand-forecasts", facilityId],
     queryFn: () => api.getDemandForecasts(facilityId),
-  });
-
-  const invalidateReports = () =>
-    qc.invalidateQueries({ queryKey: ["reports", facilityId] });
-
-  const approveMutation = useMutation({
-    mutationFn: api.approveReport,
-    onSuccess: invalidateReports,
-  });
-  const rejectMutation = useMutation({
-    mutationFn: api.rejectReport,
-    onSuccess: invalidateReports,
-  });
-  const retryMutation = useMutation({
-    mutationFn: api.retryReport,
-    onSuccess: invalidateReports,
-  });
-  const resetMutation = useMutation({
-    mutationFn: () => api.seedReports(facilityId, true),
-    onSuccess: invalidateReports,
   });
 
   const loading =
     itemsQuery.isLoading ||
     weeklyInventoryQuery.isLoading ||
     poQuery.isLoading ||
-    reportsQuery.isLoading ||
     forecastsQuery.isLoading;
-
-  // Seed reports once if this facility has none yet.
-  React.useEffect(() => {
-    if (
-      reportsQuery.data &&
-      reportsQuery.data.length === 0 &&
-      !resetMutation.isPending
-    ) {
-      api.seedReports(facilityId).then(invalidateReports);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportsQuery.data, facilityId]);
 
   // Aegi mounts as soon as the facility is known (see the outer DashboardView
   // component), independent of this `loading` gate below, so she doesn't wait
@@ -179,21 +114,12 @@ function DashboardViewContent({
   const weeklyInventory = weeklyInventoryQuery.data ?? [];
   const liveHaze = liveHazeQuery.data ?? null;
   const purchaseOrders = poQuery.data ?? [];
-  const reports = reportsQuery.data ?? [];
   const forecasts = forecastsQuery.data ?? [];
 
   const poDelivered = getPoDeliveredKpi(purchaseOrders);
   const wellStocked = getItemsWellStockedKpi(weeklyInventory);
 
-  // Both the reports workflow and the forecast backtest depend on tables
-  // that may not be migrated yet (see dashboardFallback.ts). When either
-  // comes back empty, fall back to clearly-tagged sample data instead of an
-  // all-zero dashboard.
-  const reportsAreSample = reports.length === 0;
-  const effectiveReports = reportsAreSample ? sampleReports() : reports;
-  const statusBreakdown = reportsAreSample
-    ? sampleStatusBreakdown()
-    : getReportStatusBreakdown(reports);
+  const statusBreakdown = getPurchaseOrderStatusBreakdown(purchaseOrders);
   const orders = groupOrderRows(
     getPurchaseOrderRows(
       facilityId,
@@ -203,10 +129,11 @@ function DashboardViewContent({
     ),
   );
 
-  const forecastsAreSample = forecasts.length === 0;
-  const productAccuracy = forecastsAreSample
-    ? sampleProductAccuracy(items)
-    : getProductAccuracy(forecasts, items);
+  // Stored forecasts only become scoreable once their day has real recorded
+  // usage; until at least one has, show clearly-tagged sample data.
+  const realAccuracy = getProductAccuracy(forecasts, items);
+  const forecastsAreSample = realAccuracy.length === 0;
+  const productAccuracy = forecastsAreSample ? sampleProductAccuracy(items) : realAccuracy;
   const accuracyKpi = getPredictionAccuracyKpi(productAccuracy);
 
   const selectedItem = items.find((i) => i.item_id === selectedItemId);
@@ -294,14 +221,7 @@ function DashboardViewContent({
 
       <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-1">
-          <ReportStatusDonut
-            breakdown={statusBreakdown}
-            sample={reportsAreSample}
-            onSelectStatus={(status) => {
-              setAllReportsFilter(status);
-              setAllReportsOpen(true);
-            }}
-          />
+          <PurchaseOrderStatusDonut breakdown={statusBreakdown} />
         </div>
         <div className="min-w-0 lg:col-span-2">
           <AutomatedOrdersCard orders={orders} />
@@ -316,36 +236,6 @@ function DashboardViewContent({
         selectedItemId={selectedItemId}
         onSelectItem={setSelectedItemId}
         sample={forecastsAreSample}
-      />
-
-      <ReviewDialog
-        report={reviewing}
-        open={reviewing !== null}
-        onOpenChange={(open) => !open && setReviewing(null)}
-        onApprove={(id) => {
-          if (!isSampleReportId(id)) approveMutation.mutate(id);
-          setReviewing(null);
-        }}
-        onReject={(id) => {
-          if (!isSampleReportId(id)) rejectMutation.mutate(id);
-          setReviewing(null);
-        }}
-        onRetry={(id) => {
-          if (!isSampleReportId(id)) retryMutation.mutate(id);
-          setReviewing(null);
-        }}
-        backLabel={allReportsOpen ? "Back to all reports" : "Close"}
-      />
-
-      <AllReportsDialog
-        open={allReportsOpen}
-        onOpenChange={setAllReportsOpen}
-        reports={effectiveReports}
-        initialFilter={allReportsFilter}
-        onReview={(r) => {
-          setAllReportsOpen(false);
-          setReviewing(r);
-        }}
       />
     </>
   );

@@ -5,6 +5,7 @@ import { ConflictError } from "@/lib/errors";
 import { errorMessage } from "@/lib/ai/errors";
 import { ingestNews } from "@/lib/ai/ingest";
 import { screenPendingArticles } from "@/lib/ai/screener";
+import { enrichSelectedMohArticles } from "@/lib/ai/enrichMoh";
 import { runCycle1 } from "@/lib/ai/cycle1";
 import { runCycle2 } from "@/lib/ai/cycle2";
 import { deriveAiForecastFields, findLatestAiForecasts, toUsageAdjustment } from "@/lib/ai/aiForecasts";
@@ -13,7 +14,16 @@ import { loadForecastInputs, runForecasts } from "@/lib/forecast/run";
 
 export type SyncTrigger = "manual" | "hourly" | "daily";
 export type SyncScope = "news" | "full";
-type SyncStage = "algorithmic_forecast" | "fetching_news" | "screening" | "cycle1" | "cycle2" | "reusing_last_verdict" | "done";
+type SyncStage =
+  | "algorithmic_forecast"
+  | "fetching_news"
+  | "screening"
+  | "enriching_moh"
+  | "rescreening"
+  | "cycle1"
+  | "cycle2"
+  | "reusing_last_verdict"
+  | "done";
 
 export const SYNC_TIMEOUT_SECONDS = 300;
 export const MAX_SYNC_COST_USD = 1;
@@ -110,6 +120,19 @@ async function runPipeline(syncRunId: number, scope: SyncScope): Promise<string 
   await setStage(syncRunId, "screening");
   await screenPendingArticles(syncRunId);
   await assertWithinCostCap(syncRunId);
+
+  // MOH articles the screener judged relevant from the title alone get
+  // their real content pulled from their PDF attachment here, then go back
+  // to screen_status 'pending' for a cheap re-screen with that real
+  // content - see enrichMoh.ts for why this runs only on already-selected
+  // articles rather than every MOH article up front.
+  await setStage(syncRunId, "enriching_moh");
+  const enrichment = await enrichSelectedMohArticles();
+  if (enrichment.enriched > 0) {
+    await setStage(syncRunId, "rescreening");
+    await screenPendingArticles(syncRunId);
+    await assertWithinCostCap(syncRunId);
+  }
 
   await setStage(syncRunId, "cycle1");
   await runCycle1(syncRunId);

@@ -7,8 +7,6 @@ import type {
   Item,
   Policy,
   PurchaseOrder,
-  Report,
-  ReportStatus,
   Supplier,
   WeeklyInventory,
 } from "@/lib/db/types";
@@ -159,26 +157,6 @@ export type LiveHaze = {
 
 export function getLiveHaze(): Promise<LiveHaze> {
   return apiGet<LiveHaze>("/api/haze-live");
-}
-
-export function getReports(facilityId: number, status?: ReportStatus): Promise<Report[]> {
-  const params = new URLSearchParams({ facility_id: String(facilityId) });
-  if (status) params.set("status", status);
-  return apiGet<Report[]>(`/api/reports?${params}`);
-}
-
-export function seedReports(facilityId: number, reset = false): Promise<{ seeded: number }> {
-  return apiPost<{ seeded: number }>("/api/reports/seed", { facility_id: facilityId, reset });
-}
-
-export function approveReport(id: number): Promise<Report> {
-  return apiPatch<Report>(`/api/reports/${id}`, { action: "approve" });
-}
-export function rejectReport(id: number): Promise<Report> {
-  return apiPatch<Report>(`/api/reports/${id}`, { action: "reject" });
-}
-export function retryReport(id: number): Promise<Report> {
-  return apiPatch<Report>(`/api/reports/${id}`, { action: "retry" });
 }
 
 export function getDemandForecasts(facilityId: number): Promise<DemandForecast[]> {
