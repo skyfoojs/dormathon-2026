@@ -28,8 +28,9 @@ function toApiFilter(filter: RunFilter): SyncRunFilter {
 function disabledModes(council: RunCouncil | undefined): ForecastMode[] {
   if (!council) return ["algorithmic", "ai"];
   const hasForecasts = council.aiForecast.length > 0;
+  const hasAlgorithmic = hasForecasts || (council.algorithmic?.forecastCount ?? 0) > 0;
   const hasCouncil = council.cycles.length > 0 || council.screener !== null || isActive(council.run);
-  return [...(hasForecasts ? [] : (["algorithmic"] as const)), ...(hasForecasts || hasCouncil ? [] : (["ai"] as const))];
+  return [...(hasAlgorithmic ? [] : (["algorithmic"] as const)), ...(hasForecasts || hasCouncil ? [] : (["ai"] as const))];
 }
 
 export default function PredictionsView() {
@@ -57,16 +58,17 @@ export default function PredictionsView() {
   });
   const council = councilQuery.data;
   const runStatus = council?.run.status;
+  const runStage = council?.run.stage;
 
-  const previousStatus = React.useRef(runStatus);
+  const previous = React.useRef({ status: runStatus, stage: runStage });
   React.useEffect(() => {
-    const wasActive = previousStatus.current === "running" || previousStatus.current === "queued";
-    previousStatus.current = runStatus;
-    if (wasActive && (runStatus === "succeeded" || runStatus === "failed")) {
-      qc.invalidateQueries({ queryKey: ["stock-projection"] });
-      qc.invalidateQueries({ queryKey: ["sync-runs"] });
-    }
-  }, [qc, runStatus]);
+    const wasActive = previous.current.status === "running" || previous.current.status === "queued";
+    const leftAlgorithmic = previous.current.stage === "algorithmic_forecast" && runStage !== "algorithmic_forecast";
+    previous.current = { status: runStatus, stage: runStage };
+    const finished = wasActive && (runStatus === "succeeded" || runStatus === "failed");
+    if (finished || leftAlgorithmic) qc.invalidateQueries({ queryKey: ["stock-projection"] });
+    if (finished) qc.invalidateQueries({ queryKey: ["sync-runs"] });
+  }, [qc, runStatus, runStage]);
 
   const syncMutation = useMutation({
     mutationFn: (scope: SyncScope) => api.startSyncRun(scope),

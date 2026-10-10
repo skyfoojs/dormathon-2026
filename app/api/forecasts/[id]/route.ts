@@ -5,7 +5,15 @@ import { dayNumber, holtOnDay, sumUsage, usageOnDay, type UsageOnDay } from "@/l
 import { aiUsageOnDay, buildAiForecast } from "@/lib/forecast/aiForecast";
 import { projectStock, stockHistory } from "@/lib/forecast/runout";
 import { loadForecastInputs, type ForecastInputs } from "@/lib/forecast/run";
-import { findForecastsByIds, findLatestForecasts, toForecastBasis, type ForecastRow } from "@/lib/ai/algorithmic";
+import {
+  findForecastMadeBetween,
+  findForecastsByIds,
+  findLatestForecasts,
+  toForecastBasis,
+  type ForecastRow,
+} from "@/lib/ai/algorithmic";
+import { SYNC_RUN_COLUMNS, syncRunSchema, type SyncRun } from "@/lib/ai/sync";
+import { getDb } from "@/lib/db";
 import {
   findLatestAiForecasts,
   findRunAiForecasts,
@@ -71,9 +79,27 @@ async function findForecastSources(
     return { forecast: forecasts.get(itemId) ?? null, latestAi: aiForecasts.get(itemId) ?? null };
   }
   const latestAi = (await findRunAiForecasts(syncRunId, itemId)).get(itemId) ?? null;
-  if (!latestAi) return { forecast: null, latestAi: null };
-  const forecast = (await findForecastsByIds([latestAi.forecastId])).get(latestAi.forecastId) ?? null;
-  return { forecast, latestAi };
+  if (latestAi) {
+    const forecast = (await findForecastsByIds([latestAi.forecastId])).get(latestAi.forecastId) ?? null;
+    return { forecast, latestAi };
+  }
+  return { forecast: await findRunOwnForecast(itemId, await findRun(syncRunId)), latestAi: null };
+}
+
+async function findRun(syncRunId: number): Promise<SyncRun> {
+  const { data, error } = await getDb()
+    .from("sync_runs")
+    .select(SYNC_RUN_COLUMNS)
+    .eq("sync_run_id", syncRunId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new NotFoundError("Sync run not found");
+  return syncRunSchema.parse(data);
+}
+
+async function findRunOwnForecast(itemId: number, run: SyncRun): Promise<ForecastRow | null> {
+  if (run.scope !== "full") return null;
+  return findForecastMadeBetween(itemId, run.started_at, run.finished_at ?? new Date().toISOString());
 }
 
 function daysSinceForecast(history: { date: string }[], forecast: ForecastRow): number {

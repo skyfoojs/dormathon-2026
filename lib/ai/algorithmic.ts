@@ -56,6 +56,20 @@ export async function findForecastsByIds(ids: number[]): Promise<Map<number, For
   return new Map(z.array(forecastRowSchema).parse(data).map((row) => [row.forecast_id, row]));
 }
 
+export async function findForecastMadeBetween(itemId: number, from: string, to: string): Promise<ForecastRow | null> {
+  const { data, error } = await getDb()
+    .from("demand_forecasts")
+    .select(FORECAST_COLUMNS)
+    .eq("item_id", itemId)
+    .gte("created_at", from)
+    .lte("created_at", to)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? forecastRowSchema.parse(data) : null;
+}
+
 export async function findLatestInventoryDate(): Promise<string | null> {
   const { data, error } = await getDb()
     .from("daily_inventory")
