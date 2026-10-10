@@ -70,6 +70,35 @@
   --width-sidebar-expanded: var(--width-sidebar-expanded);
 }
 
+@theme {
+  --animate-floaty: floaty 4.4s ease-in-out infinite;
+  --animate-pop: pop 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+  --animate-orbit: orbit 2s linear infinite;
+
+  @keyframes floaty {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-3px);
+    }
+  }
+
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.4);
+    }
+  }
+
+  @keyframes orbit {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

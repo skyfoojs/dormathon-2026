@@ -1,33 +1,77 @@
 "use client";
 
 import * as React from "react";
-import { Search, FileText, ShieldCheck } from "lucide-react";
-import { Card } from "@/components/ui/Card";
-import { ProvenanceTag, Tag } from "@/components/ui/Tag";
-import { cn } from "@/lib/cn";
-import type { PredictionRunDetail, RunModel, RunStep } from "@/lib/mock/predictionDetail";
+import { Check, FileText, Maximize, Minus, Plus, Search, ShieldCheck } from "lucide-react";
+import { IconButton } from "@/components/ui/Button";
+import { GraphSidePanel, type GraphSelection } from "@/components/predictions/GraphSidePanel";
+import { MODEL_COLOR } from "@/components/predictions/ModelBadge";
+import { cn, focusRingClasses } from "@/lib/cn";
+import type { PredictionRunDetail } from "@/lib/mock/predictionDetail";
 import type { useReplay } from "@/components/predictions/useReplay";
 
-type Selected =
-  | { type: "consensus" }
-  | { type: "model"; modelId: string }
-  | { type: "step"; modelId: string; stepId: string };
+// Coordinate space the diagram is laid out in. The world element is exactly
+// this size (h-165 w-225) and is panned and zoomed as a whole.
+const WORLD = { w: 900, h: 660 };
+const CENTER = { x: 450, y: 360 };
+const MODEL_ORBIT = 210;
+const STEP_ORBIT = 104;
+const MODEL_ANGLES = [-90, 30, 150];
+const STEP_COUNT = 5;
+// Half sizes of the nodes, for placing them and trimming the edges.
+const STEP_HALF = 20;
+const MODEL_HALF = 40;
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 2.2;
 
-// Canvas coordinate space the layout below is computed in, matching the
-// design reference's fixed 640x560 diagram exactly; positions are converted
-// to percentages so the container itself can stay fluid.
-const W = 640;
-const H = 560;
-const CENTER = { x: 320, y: 270 };
-const MODEL_CENTERS = [
-  { x: 150, y: 150 },
-  { x: 490, y: 150 },
-  { x: 320, y: 430 },
-];
-const MODEL_COLOR = ["bg-navy text-white", "bg-blue-light text-ink", "bg-amber-border text-ink"];
+const STEP_ICON_COLOR = ["text-navy", "text-strong-muted", "text-amber-text"];
+const MODEL_RING_COLOR = ["to-blue-light", "to-blue-border", "to-amber-border"];
 
-function pct(value: number, total: number): string {
-  return `${(value / total) * 100}%`;
+type Point = { x: number; y: number };
+type View = { zoom: number; x: number; y: number };
+
+// One decimal keeps server- and client-rendered coordinates identical.
+function r1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function polar(origin: Point, radius: number, degrees: number): Point {
+  const radians = (degrees * Math.PI) / 180;
+  return { x: r1(origin.x + radius * Math.cos(radians)), y: r1(origin.y + radius * Math.sin(radians)) };
+}
+
+function segment(from: Point, to: Point, trimStart: number, trimEnd: number): string {
+  const length = Math.hypot(to.x - from.x, to.y - from.y);
+  const ux = (to.x - from.x) / length;
+  const uy = (to.y - from.y) / length;
+  return `M${r1(from.x + ux * trimStart)} ${r1(from.y + uy * trimStart)} L${r1(to.x - ux * trimEnd)} ${r1(to.y - uy * trimEnd)}`;
+}
+
+// Each model sits on a circle around the consensus node; its five steps sit
+// on a smaller circle around the model, starting on the side facing the centre.
+const LAYOUT = MODEL_ANGLES.map((angle) => {
+  const model = polar(CENTER, MODEL_ORBIT, angle);
+  const stepAngles = Array.from({ length: STEP_COUNT }, (_, k) => angle + 180 + 50 + 65 * k);
+  const steps = stepAngles.map((a) => polar(model, STEP_ORBIT, a));
+  const arcs = stepAngles.slice(1).map((a, k) => {
+    const from = polar(model, STEP_ORBIT, stepAngles[k] + 12);
+    const to = polar(model, STEP_ORBIT, a - 12);
+    return `M${from.x} ${from.y} A${STEP_ORBIT} ${STEP_ORBIT} 0 0 1 ${to.x} ${to.y}`;
+  });
+  return {
+    model,
+    steps,
+    arcs,
+    spoke: segment(steps[STEP_COUNT - 1], model, STEP_HALF + 2, MODEL_HALF + 6),
+    link: segment(model, CENTER, MODEL_HALF + 6, MODEL_HALF + 10),
+  };
+});
+
+function clampZoom(zoom: number): number {
+  return Math.round(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)) * 100) / 100;
+}
+
+function fitView(stage: HTMLElement): View {
+  return { zoom: clampZoom(Math.min(1, stage.clientWidth / 680, stage.clientHeight / 630)), x: 0, y: 0 };
 }
 
 export function GraphView({
@@ -37,249 +81,333 @@ export function GraphView({
   detail: PredictionRunDetail;
   replay: ReturnType<typeof useReplay>;
 }) {
-  const [selected, setSelected] = React.useState<Selected>({ type: "consensus" });
+  const [selection, setSelection] = React.useState<GraphSelection>({ type: "model", modelIndex: 0 });
+  const [view, setView] = React.useState<View>({ zoom: 0.78, x: 0, y: 0 });
+  const stageRef = React.useRef<HTMLDivElement | null>(null);
+  const dragRef = React.useRef<{ pointerX: number; pointerY: number; x: number; y: number } | null>(null);
+  const gridId = React.useId();
+
+  // The wheel listener must be non-passive to stop the page scrolling while
+  // zooming, which React's onWheel cannot do.
+  const attachStage = React.useCallback((stage: HTMLDivElement | null) => {
+    if (!stage) return;
+    stageRef.current = stage;
+    setView(fitView(stage));
+    function onWheel(event: WheelEvent) {
+      event.preventDefault();
+      setView((v) => ({ ...v, zoom: clampZoom(v.zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1)) }));
+    }
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, []);
+
+  function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if ((event.target as Element).closest("button")) return;
+    dragRef.current = { pointerX: event.clientX, pointerY: event.clientY, x: view.x, y: view.y };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function onPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    setView((v) => ({
+      ...v,
+      x: drag.x + event.clientX - drag.pointerX,
+      y: drag.y + event.clientY - drag.pointerY,
+    }));
+  }
+
+  function endDrag() {
+    dragRef.current = null;
+  }
+
+  const yesCount = detail.models.filter((m) => m.vote === "YES").length;
+  const consensusYes = yesCount * 2 > detail.models.length;
+  const consensusPercent = Math.round(
+    detail.models.reduce((sum, m) => sum + m.confidence, 0) / detail.models.length,
+  );
+  const consensusShown = replay.isConsensusRevealed;
+  const status = replay.playing ? "Replaying run" : consensusShown ? "Panel complete" : "Replay paused";
 
   return (
-    <div className="flex flex-col gap-5 lg:flex-row">
-      <div className="relative mx-auto w-full max-w-2xl" style={{ aspectRatio: `${W} / ${H}` }}>
-        <svg viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 h-full w-full" aria-hidden="true">
-          {detail.models.map((model, modelIndex) => {
-            const mc = MODEL_CENTERS[modelIndex];
-            const edgeDone = replay.isVoteRevealed(modelIndex);
-            const lines = [
-              <line
-                key={`core-${model.id}`}
-                x1={mc.x}
-                y1={mc.y}
-                x2={CENTER.x}
-                y2={CENTER.y}
-                stroke="var(--color-navy)"
-                strokeWidth={2}
-                opacity={edgeDone ? 1 : 0.25}
-              />,
-            ];
-            const outward = Math.atan2(mc.y - CENTER.y, mc.x - CENTER.x);
-            model.steps.forEach((step, stepIndex) => {
-              const angle = outward + (stepIndex - 2) * 0.55;
-              const sx = mc.x + 96 * Math.cos(angle);
-              const sy = mc.y + 96 * Math.sin(angle);
-              const visible = replay.isStepRevealed(modelIndex, stepIndex);
-              lines.push(
-                <line
-                  key={step.id}
-                  x1={mc.x}
-                  y1={mc.y}
-                  x2={sx}
-                  y2={sy}
-                  stroke="var(--color-line-strong)"
-                  strokeWidth={1.5}
-                  strokeDasharray="3 4"
-                  opacity={visible ? 1 : 0.18}
-                />,
-              );
-            });
-            return lines;
-          })}
-        </svg>
-
-        <button
-          type="button"
-          onClick={() => setSelected({ type: "consensus" })}
-          aria-pressed={selected.type === "consensus"}
-          aria-label={`Consensus node. ${replay.isConsensusRevealed ? detail.consensusLabel : "Not yet revealed"}`}
-          className={cn(
-            "absolute flex flex-col items-center justify-center gap-1 rounded-md border-[1.5px] border-green-border bg-green-tint text-xs font-semibold text-green-text transition-opacity duration-150 focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-blue-light",
-            selected.type === "consensus" && "ring-2 ring-navy",
-          )}
-          style={{
-            left: pct(CENTER.x - 40, W),
-            top: pct(CENTER.y - 40, H),
-            width: pct(80, W),
-            height: pct(80, H),
-            opacity: replay.isConsensusRevealed ? 1 : 0.25,
-          }}
+    <div className="flex flex-col gap-5 xl:flex-row xl:items-start">
+      <div
+        ref={attachStage}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        className="relative h-128 w-full min-w-0 flex-1 cursor-grab touch-none overflow-hidden rounded-card border border-line bg-page select-none active:cursor-grabbing"
+      >
+        <div
+          className="absolute top-0 left-1/2 h-165 w-225 origin-top"
+          style={{ transform: `translate(calc(-50% + ${view.x}px), ${view.y}px) scale(${view.zoom})` }}
         >
-          <ShieldCheck size={22} aria-hidden="true" />
-          Consensus
-        </button>
+          <svg
+            viewBox={`0 0 ${WORLD.w} ${WORLD.h}`}
+            className="absolute inset-0 h-full w-full overflow-visible"
+            aria-hidden="true"
+          >
+            <defs>
+              <pattern id={gridId} width={20} height={20} patternUnits="userSpaceOnUse">
+                <path d="M20 0H0V20" fill="none" stroke="var(--color-line)" strokeWidth={1} />
+              </pattern>
+            </defs>
+            <rect
+              x={-2 * WORLD.w}
+              y={-2 * WORLD.h}
+              width={5 * WORLD.w}
+              height={5 * WORLD.h}
+              fill={`url(#${gridId})`}
+              opacity={0.5}
+            />
+            {LAYOUT.map((layout, modelIndex) => {
+              const voteShown = replay.isVoteRevealed(modelIndex);
+              const edges = [
+                ...layout.arcs.map((d, k) => ({ d, shown: replay.isStepRevealed(modelIndex, k + 1), vote: false })),
+                { d: layout.spoke, shown: replay.isStepRevealed(modelIndex, STEP_COUNT - 1), vote: false },
+                { d: layout.link, shown: voteShown, vote: true },
+              ];
+              return (
+                <g key={modelIndex}>
+                  <circle
+                    cx={layout.model.x}
+                    cy={layout.model.y}
+                    r={STEP_ORBIT}
+                    fill="none"
+                    stroke="var(--color-line)"
+                    strokeWidth={1.2}
+                    strokeDasharray="2 7"
+                    strokeLinecap="round"
+                    className={cn(
+                      "transition-opacity duration-700",
+                      replay.isStepRevealed(modelIndex, 0) ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+                  {edges.map((edge) => (
+                    <g
+                      key={edge.d}
+                      className={cn("transition-opacity duration-700", edge.shown ? "opacity-100" : "opacity-0")}
+                    >
+                      <path
+                        d={edge.d}
+                        fill="none"
+                        stroke={edge.vote ? "var(--color-green-border)" : "var(--color-calc-border)"}
+                        strokeWidth={2.2}
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d={edge.d}
+                        fill="none"
+                        stroke="var(--color-blue-light)"
+                        strokeWidth={2.2}
+                        strokeLinecap="round"
+                        strokeDasharray="4 10"
+                        className="motion-reduce:hidden"
+                      >
+                        <animate attributeName="stroke-dashoffset" from="14" to="0" dur="0.9s" repeatCount="indefinite" />
+                      </path>
+                    </g>
+                  ))}
+                  {voteShown ? (
+                    <circle r={3.4} fill="var(--color-navy)" opacity={0.85} className="motion-reduce:hidden">
+                      <animateMotion dur="2.2s" begin={`${modelIndex * 0.5}s`} repeatCount="indefinite" path={layout.link} />
+                    </circle>
+                  ) : null}
+                </g>
+              );
+            })}
+          </svg>
 
-        {detail.models.map((model, modelIndex) => (
-          <GraphModelNode
-            key={model.id}
-            model={model}
-            modelIndex={modelIndex}
-            replay={replay}
-            selected={selected}
-            onSelectModel={() => setSelected({ type: "model", modelId: model.id })}
-            onSelectStep={(stepId) => setSelected({ type: "step", modelId: model.id, stepId })}
-          />
-        ))}
+          {detail.models.map((model, modelIndex) => {
+            const layout = LAYOUT[modelIndex];
+            const voteShown = replay.isVoteRevealed(modelIndex);
+            const modelSelected = selection.type === "model" && selection.modelIndex === modelIndex;
+            return (
+              <React.Fragment key={model.id}>
+                {model.steps.map((step, stepIndex) => {
+                  const shown = replay.isStepRevealed(modelIndex, stepIndex);
+                  const selected =
+                    selection.type === "step" &&
+                    selection.modelIndex === modelIndex &&
+                    selection.stepIndex === stepIndex;
+                  const Icon = step.icon === "search" ? Search : FileText;
+                  const at = layout.steps[stepIndex];
+                  return (
+                    <div
+                      key={step.id}
+                      className={cn(
+                        "absolute h-10 w-10 transition-opacity duration-700 motion-safe:animate-floaty",
+                        shown ? "opacity-100" : "opacity-0",
+                      )}
+                      style={{
+                        left: at.x - STEP_HALF,
+                        top: at.y - STEP_HALF,
+                        animationDelay: `${((stepIndex * 3 + modelIndex) * 0.37) % 2.4}s`,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        disabled={!shown}
+                        title={step.label}
+                        aria-label={`${model.name} step ${stepIndex + 1}: ${step.label}`}
+                        aria-pressed={selected}
+                        onClick={() => setSelection({ type: "step", modelIndex, stepIndex })}
+                        className={cn(
+                          "relative flex h-full w-full items-center justify-center rounded-xl border-2 bg-card shadow-sm transition duration-200 hover:border-blue-light hover:shadow-md",
+                          focusRingClasses,
+                          STEP_ICON_COLOR[modelIndex],
+                          selected ? "border-navy ring-4 ring-blue-light/30" : "border-calc-border",
+                          shown ? "scale-100" : "scale-50",
+                        )}
+                      >
+                        <Icon size={18} aria-hidden="true" />
+                        {shown ? <DoneMark small /> : null}
+                      </button>
+                    </div>
+                  );
+                })}
+
+                <div
+                  className={cn(
+                    "absolute h-20 w-20 transition-opacity duration-700 motion-safe:animate-floaty",
+                    voteShown ? "opacity-100" : "opacity-0",
+                  )}
+                  style={{
+                    left: layout.model.x - MODEL_HALF,
+                    top: layout.model.y - MODEL_HALF,
+                    animationDelay: `${modelIndex * 0.5}s`,
+                  }}
+                >
+                  {voteShown ? <OrbitRing color={MODEL_RING_COLOR[modelIndex]} /> : null}
+                  <button
+                    type="button"
+                    disabled={!voteShown}
+                    title={model.name}
+                    aria-label={`${model.name}, ${model.vote} ${model.confidence} percent`}
+                    aria-pressed={modelSelected}
+                    onClick={() => setSelection({ type: "model", modelIndex })}
+                    className={cn(
+                      "relative flex h-full w-full flex-col items-center justify-center gap-1 rounded-3xl border-2 text-2xl leading-none font-bold shadow-sm transition duration-200 hover:shadow-md",
+                      focusRingClasses,
+                      MODEL_COLOR[modelIndex],
+                      modelSelected ? "border-ink ring-4 ring-blue-light/30" : "border-transparent",
+                      voteShown ? "scale-100" : "scale-50",
+                    )}
+                  >
+                    {model.name[0]}
+                    <span className="rounded-full bg-card/90 px-1.5 py-0.5 font-mono text-xs font-medium text-ink">
+                      {model.vote} {model.confidence}%
+                    </span>
+                    {voteShown ? <DoneMark /> : null}
+                  </button>
+                </div>
+              </React.Fragment>
+            );
+          })}
+
+          <div
+            className={cn(
+              "absolute h-20 w-20 transition-opacity duration-700 motion-safe:animate-floaty",
+              consensusShown ? "opacity-100" : "opacity-0",
+            )}
+            style={{ left: CENTER.x - MODEL_HALF, top: CENTER.y - MODEL_HALF }}
+          >
+            {consensusShown ? <OrbitRing color={consensusYes ? "to-green-border" : "to-red"} /> : null}
+            <button
+              type="button"
+              disabled={!consensusShown}
+              aria-label={`Consensus, ${consensusYes ? "YES" : "NO"} ${consensusPercent} percent. Show summary of all evidence.`}
+              aria-pressed={selection.type === "consensus"}
+              onClick={() => setSelection({ type: "consensus" })}
+              className={cn(
+                "relative flex h-full w-full flex-col items-center justify-center gap-0.5 rounded-3xl border-2 text-white shadow-lg transition duration-200",
+                focusRingClasses,
+                consensusYes ? "border-green-border bg-green-text" : "border-red bg-red-dark",
+                "ring-4",
+                selection.type === "consensus"
+                  ? "ring-blue-light/40"
+                  : consensusYes
+                    ? "ring-green-border/40"
+                    : "ring-red/30",
+                consensusShown ? "scale-100" : "scale-50",
+              )}
+            >
+              <ShieldCheck size={26} aria-hidden="true" />
+              <span className="text-sm leading-none font-bold">{consensusYes ? "YES" : "NO"}</span>
+              <span className="font-mono text-xs">{consensusPercent}%</span>
+            </button>
+            <div className="absolute top-full left-1/2 flex -translate-x-1/2 flex-col items-center pt-2 text-center whitespace-nowrap">
+              <span className="text-xs font-semibold text-ink">Consensus</span>
+              <span className="font-mono text-xs tracking-wide text-muted uppercase">
+                {detail.models.length} models voted
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="absolute top-3 left-3 flex items-center gap-2 rounded-full border border-calc-border bg-card px-3 py-1 font-mono text-xs tracking-wide text-strong-muted uppercase">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full rounded-full bg-green-text opacity-75 motion-safe:animate-ping" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-green-text" />
+          </span>
+          {status}
+        </div>
+
+        <div className="absolute bottom-3 left-3 flex items-center gap-1 rounded-md bg-card shadow-sm">
+          <IconButton
+            aria-label="Zoom in"
+            onClick={() => setView((v) => ({ ...v, zoom: clampZoom(v.zoom * 1.2) }))}
+          >
+            <Plus size={18} aria-hidden="true" />
+          </IconButton>
+          <IconButton
+            aria-label="Zoom out"
+            onClick={() => setView((v) => ({ ...v, zoom: clampZoom(v.zoom / 1.2) }))}
+          >
+            <Minus size={18} aria-hidden="true" />
+          </IconButton>
+          <IconButton
+            aria-label="Fit to view"
+            onClick={() => {
+              if (stageRef.current) setView(fitView(stageRef.current));
+            }}
+          >
+            <Maximize size={18} aria-hidden="true" />
+          </IconButton>
+          <span className="w-14 text-center font-mono text-xs text-muted">{Math.round(view.zoom * 100)}%</span>
+        </div>
+
+        <span className="absolute right-3 bottom-3 hidden rounded bg-card/90 px-2 py-0.5 text-xs text-muted sm:block">
+          Scroll to zoom, drag to move
+        </span>
       </div>
 
-      <DetailPanel detail={detail} selected={selected} />
+      <GraphSidePanel detail={detail} selection={selection} onSelect={setSelection} />
     </div>
   );
 }
 
-function GraphModelNode({
-  model,
-  modelIndex,
-  replay,
-  selected,
-  onSelectModel,
-  onSelectStep,
-}: {
-  model: RunModel;
-  modelIndex: number;
-  replay: ReturnType<typeof useReplay>;
-  selected: Selected;
-  onSelectModel: () => void;
-  onSelectStep: (stepId: string) => void;
-}) {
-  const mc = MODEL_CENTERS[modelIndex];
-  const voteRevealed = replay.isVoteRevealed(modelIndex);
-  const isModelSelected = selected.type === "model" && selected.modelId === model.id;
-  const outward = Math.atan2(mc.y - CENTER.y, mc.x - CENTER.x);
-  const voteX = mc.x + (CENTER.x - mc.x) * 0.42;
-  const voteY = mc.y + (CENTER.y - mc.y) * 0.42;
-
+function DoneMark({ small = false }: { small?: boolean }) {
   return (
-    <>
-      <button
-        type="button"
-        onClick={onSelectModel}
-        aria-pressed={isModelSelected}
-        aria-label={`${model.name}, role ${model.role}`}
-        className={cn(
-          "absolute flex items-center justify-center rounded-full border-2 text-lg font-bold transition-opacity duration-150 focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-blue-light",
-          MODEL_COLOR[modelIndex],
-          isModelSelected ? "border-ink" : "border-transparent",
-        )}
-        style={{ left: pct(mc.x - 32, W), top: pct(mc.y - 32, H), width: pct(64, W), height: pct(64, H) }}
-      >
-        {model.name[0]}
-      </button>
-      <div
-        className="absolute text-center text-xs font-semibold text-ink"
-        style={{ left: pct(mc.x - 60, W), top: pct(mc.y + 38, H), width: pct(120, W) }}
-      >
-        {model.name}
-      </div>
-
-      <div
-        className={cn(
-          "absolute flex items-center justify-center gap-1 rounded-md border-[1.5px] font-mono text-xs font-medium transition-opacity duration-150",
-          voteRevealed ? "border-green-border bg-green-tint text-green-text" : "border-line bg-card text-muted",
-        )}
-        style={{ left: pct(voteX - 32, W), top: pct(voteY - 20, H), width: pct(64, W), height: pct(40, H), opacity: voteRevealed ? 1 : 0.3 }}
-      >
-        {voteRevealed ? `${model.vote} ${model.confidence}%` : "Sealed"}
-      </div>
-
-      {model.steps.map((step, stepIndex) => {
-        const angle = outward + (stepIndex - 2) * 0.55;
-        const sx = mc.x + 96 * Math.cos(angle);
-        const sy = mc.y + 96 * Math.sin(angle);
-        const visible = replay.isStepRevealed(modelIndex, stepIndex);
-        const isStepSelected = selected.type === "step" && selected.modelId === model.id && selected.stepId === step.id;
-        const Icon = step.icon === "search" ? Search : FileText;
-        return (
-          <React.Fragment key={step.id}>
-            <button
-              type="button"
-              onClick={() => onSelectStep(step.id)}
-              aria-pressed={isStepSelected}
-              aria-label={`${model.name} step: ${step.label}${visible ? "" : ", not yet revealed"}`}
-              className={cn(
-                "absolute flex items-center justify-center rounded-full border-[1.5px] bg-card text-navy transition-opacity duration-150 focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-blue-light",
-                isStepSelected ? "border-navy ring-2 ring-navy" : "border-line",
-              )}
-              style={{ left: pct(sx - 17, W), top: pct(sy - 17, H), width: pct(34, W), height: pct(34, H), opacity: visible ? 1 : 0.25 }}
-            >
-              <Icon size={14} aria-hidden="true" />
-            </button>
-            <div
-              className="absolute text-center text-xs text-strong-muted"
-              style={{
-                left: pct(Math.min(Math.max(sx - 56, 2), W - 114), W),
-                top: pct(sy + 20, H),
-                width: pct(112, W),
-                opacity: visible ? 1 : 0.25,
-              }}
-            >
-              {step.label}
-            </div>
-          </React.Fragment>
-        );
-      })}
-    </>
+    <span
+      className={cn(
+        "pointer-events-none absolute -top-1.5 -right-1.5 flex items-center justify-center rounded-full border-2 border-card bg-green-text text-white motion-safe:animate-pop",
+        small ? "h-4 w-4" : "h-5 w-5",
+      )}
+    >
+      <Check size={small ? 8 : 10} strokeWidth={4} aria-hidden="true" />
+    </span>
   );
 }
 
-function DetailPanel({ detail, selected }: { detail: PredictionRunDetail; selected: Selected }) {
+// A highlight that sweeps around a node once its result is in.
+function OrbitRing({ color }: { color: string }) {
   return (
-    <Card className="flex w-full flex-col gap-3 p-5 lg:w-80 lg:shrink-0">
-      {selected.type === "consensus" ? (
-        <>
-          <h3 className="text-base font-semibold">Consensus</h3>
-          <Tag tone="green" className="self-start">
-            {detail.consensusLabel}
-          </Tag>
-          <p className="text-sm text-strong-muted">{detail.claim}</p>
-        </>
-      ) : null}
-      {selected.type === "model" ? <ModelDetail model={detail.models.find((m) => m.id === selected.modelId)!} /> : null}
-      {selected.type === "step" ? (
-        <StepDetail
-          model={detail.models.find((m) => m.id === selected.modelId)!}
-          step={detail.models
-            .find((m) => m.id === selected.modelId)!
-            .steps.find((s) => s.id === selected.stepId)!}
-        />
-      ) : null}
-    </Card>
-  );
-}
-
-function ModelDetail({ model }: { model: RunModel }) {
-  return (
-    <>
-      <h3 className="text-base font-semibold">{model.name}</h3>
-      <p className="text-xs text-muted">{model.version} {"·"} {model.role}</p>
-      <div>
-        <p className="text-xs font-semibold tracking-wide text-muted uppercase">Outcome</p>
-        <p className="text-sm">{model.outcome}</p>
-      </div>
-      <div>
-        <p className="text-xs font-semibold tracking-wide text-muted uppercase">Confidence</p>
-        <p className="font-mono text-sm">{model.vote} {model.confidence}%</p>
-      </div>
-      <div>
-        <p className="text-xs font-semibold tracking-wide text-muted uppercase">Research feed</p>
-        <ul className="mt-1 flex flex-col gap-1 text-sm">
-          {model.steps.map((s) => (
-            <li key={s.id}>{s.label}</li>
-          ))}
-        </ul>
-      </div>
-    </>
-  );
-}
-
-function StepDetail({ model, step }: { model: RunModel; step: RunStep }) {
-  return (
-    <>
-      <p className="text-xs text-muted">{model.name}</p>
-      <h3 className="text-base font-semibold">{step.label}</h3>
-      <div>
-        <p className="text-xs font-semibold tracking-wide text-muted uppercase">What it looked at</p>
-        <p className="text-sm">{step.detail}</p>
-      </div>
-      <div>
-        <p className="text-xs font-semibold tracking-wide text-muted uppercase">What it found</p>
-        <p className="text-sm">{step.finding}</p>
-      </div>
-      <ProvenanceTag kind={step.provenance} className="self-start" />
-    </>
+    <span className="pointer-events-none absolute -inset-1 overflow-hidden rounded-3xl" aria-hidden="true">
+      <span
+        className={cn("absolute -inset-8 bg-conic from-transparent from-50% motion-safe:animate-orbit", color)}
+      />
+    </span>
   );
 }

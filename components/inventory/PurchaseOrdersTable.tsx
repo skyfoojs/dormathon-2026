@@ -24,8 +24,9 @@ export function PurchaseOrdersTable({
   onDelete,
 }: {
   rows: PurchaseOrderRow[];
-  onEdit: (row: PurchaseOrderRow) => void;
-  onDelete: (row: PurchaseOrderRow) => void;
+  // Leave both out for a read-only table with no actions column.
+  onEdit?: (row: PurchaseOrderRow) => void;
+  onDelete?: (row: PurchaseOrderRow) => void;
 }) {
   const columns = [
     helper.accessor((r) => r.po.po_id, {
@@ -63,17 +64,21 @@ export function PurchaseOrdersTable({
         );
       },
     }),
-    helper.display({
-      id: "actions",
-      header: "Actions",
-      cell: ({ row }) => (
-        <RowActions
-          label={`PO-${row.original.po.po_id}`}
-          onEdit={() => onEdit(row.original)}
-          onDelete={() => onDelete(row.original)}
-        />
-      ),
-    }),
+    ...(onEdit && onDelete
+      ? [
+          helper.display({
+            id: "actions",
+            header: "Actions",
+            cell: ({ row }) => (
+              <RowActions
+                label={`PO-${row.original.po.po_id}`}
+                onEdit={() => onEdit(row.original)}
+                onDelete={() => onDelete(row.original)}
+              />
+            ),
+          }),
+        ]
+      : []),
   ];
 
   return (

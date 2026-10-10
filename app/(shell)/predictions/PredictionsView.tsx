@@ -2,57 +2,70 @@
 
 import * as React from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { LastSyncCard } from "@/components/predictions/LastSyncCard";
-import { RunTilesSection } from "@/components/predictions/RunTiles";
-import { AllRunsModal } from "@/components/predictions/AllRunsModal";
+import { PreviousRunsCard } from "@/components/predictions/RunTiles";
+import { ForecastModeSwitch, type ForecastMode } from "@/components/predictions/ForecastModeSwitch";
+import { AlgorithmicForecast } from "@/components/predictions/AlgorithmicForecast";
 import { RunDetail } from "@/components/predictions/RunDetail";
 import { SourcesAndChanges } from "@/components/predictions/SourcesAndChanges";
 import { SuggestedStockTable } from "@/components/predictions/SuggestedStockTable";
 import { StockRunoutCard } from "@/components/predictions/StockRunoutCard";
 import { usePredictions } from "@/components/providers/PredictionsProvider";
-import { getRunDetail } from "@/lib/mock/predictionDetail";
+import { ALGO_CHANGES, ALGO_SOURCES, buildTierRows, type WmaWindowDays } from "@/lib/mock/algorithmicForecast";
+import { buildRunDetail } from "@/lib/mock/predictionDetail";
+
+const SUBTITLE: Record<ForecastMode, string> = {
+  ai: "When the models last read the outside world, what each one found, and what they suggest.",
+  algorithmic: "Forecasts from your own stock history only. No AI and no outside signals.",
+};
 
 export default function PredictionsView() {
   const { runs, selectedRunId, selectRun, syncNow } = usePredictions();
-  const [modalOpen, setModalOpen] = React.useState(false);
+  const [mode, setMode] = React.useState<ForecastMode>("ai");
+  const [windowDays, setWindowDays] = React.useState<WmaWindowDays>(60);
 
   const selectedRun = runs.find((r) => r.id === selectedRunId) ?? runs[0];
-  const detail = getRunDetail(selectedRun.id) ?? getRunDetail(runs[0].id)!;
+  const detail = React.useMemo(() => buildRunDetail(selectedRun), [selectedRun]);
+  const tierRows = React.useMemo(() => buildTierRows(windowDays), [windowDays]);
+  const highTierCount = tierRows.filter((r) => r.tier === "High").length;
+  const isAi = mode === "ai";
 
   return (
     <>
-      <PageHeader
-        title="Predictions"
-        subtitle="When the models last read the outside world, what each one found, and what they suggest."
-      />
+      <PageHeader title="Predictions" subtitle={SUBTITLE[mode]} />
 
-      <LastSyncCard latestRun={runs[0]} onSyncNow={syncNow} />
-
-      <StockRunoutCard />
-
-      <RunTilesSection
+      <PreviousRunsCard
         runs={runs}
-        totalToday={runs.length}
         selectedRunId={selectedRun.id}
         onSelect={selectRun}
-        onViewAll={() => setModalOpen(true)}
+        onSyncNow={syncNow}
+        nextSyncClock="15:00"
+        scoreLabel={isAi ? "risk" : "high tier"}
+        getScore={(run) => (isAi ? run.riskScore : highTierCount)}
       />
 
-      <AllRunsModal
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-        runs={runs}
-        onOpenRun={(id) => {
-          selectRun(id);
-          setModalOpen(false);
-        }}
+      <ForecastModeSwitch mode={mode} onChange={setMode} />
+
+      {isAi ? (
+        <>
+          <RunDetail key={selectedRun.id} run={selectedRun} detail={detail} />
+          <SuggestedStockTable rows={detail.suggestedStock} />
+        </>
+      ) : (
+        <>
+          <AlgorithmicForecast
+            run={selectedRun}
+            windowDays={windowDays}
+            onWindowChange={setWindowDays}
+            tierRows={tierRows}
+          />
+          <StockRunoutCard />
+        </>
+      )}
+
+      <SourcesAndChanges
+        sources={isAi ? detail.sources : ALGO_SOURCES}
+        changes={isAi ? detail.changes : ALGO_CHANGES}
       />
-
-      <RunDetail key={selectedRun.id} run={selectedRun} detail={detail} />
-
-      <SourcesAndChanges detail={detail} />
-
-      <SuggestedStockTable rows={detail.suggestedStock} />
     </>
   );
 }

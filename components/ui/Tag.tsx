@@ -63,15 +63,18 @@ const PROVENANCE: Record<ProvenanceKind, { tone: TagTone; label: string }> = {
 
 export function ProvenanceTag({
   kind,
+  count,
   className,
 }: {
   kind: ProvenanceKind;
+  // Shown after the label, e.g. "Database 3".
+  count?: number;
   className?: string;
 }) {
   const { tone, label } = PROVENANCE[kind];
   return (
     <Tag tone={tone} className={className}>
-      {label}
+      {count === undefined ? label : `${label} ${count}`}
     </Tag>
   );
 }
