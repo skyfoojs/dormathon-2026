@@ -60,7 +60,6 @@ function ItemsViewContent({ facilityId }: { facilityId: number }) {
 
   const invalidateItems = () => qc.invalidateQueries({ queryKey: ["items"] });
   const invalidateSuppliers = () => qc.invalidateQueries({ queryKey: ["suppliers"] });
-  const invalidateWeekly = () => qc.invalidateQueries({ queryKey: ["weekly-inventory", facilityId] });
 
   const createItemMutation = useMutation({
     mutationFn: (input: Omit<Item, "item_id">) => api.createItem(input),
@@ -79,11 +78,6 @@ function ItemsViewContent({ facilityId }: { facilityId: number }) {
   const deleteItemMutation = useMutation({
     mutationFn: (id: number) => api.deleteItem(id),
     onSuccess: invalidateItems,
-  });
-  const reorderLevelMutation = useMutation({
-    mutationFn: ({ recordId, level }: { recordId: number; level: number }) =>
-      api.updateReorderLevel(recordId, level),
-    onSuccess: invalidateWeekly,
   });
 
   const createSupplierMutation = useMutation({
@@ -113,14 +107,9 @@ function ItemsViewContent({ facilityId }: { facilityId: number }) {
   const supplierRows = getSupplierRows(facilityId, suppliers, items, purchaseOrders);
 
   function handleItemSubmit(values: ItemFormValues) {
-    const { reorder_level, ...rest } = values;
-    const itemData = { ...rest, is_critical: (rest.is_critical ? 1 : 0) as 0 | 1 };
+    const itemData = { ...values, is_critical: (values.is_critical ? 1 : 0) as 0 | 1 };
     if (panel?.kind === "item" && panel.mode === "edit") {
       updateItemMutation.mutate({ id: panel.id, input: itemData });
-      const latestRecordId = itemRows.find((r) => r.item.item_id === panel.id)?.latestRecordId;
-      if (reorder_level !== undefined && latestRecordId) {
-        reorderLevelMutation.mutate({ recordId: latestRecordId, level: reorder_level });
-      }
     } else {
       createItemMutation.mutate(itemData);
     }
@@ -176,11 +165,6 @@ function ItemsViewContent({ facilityId }: { facilityId: number }) {
         <ItemForm
           mode={panel.mode}
           item={panel.mode === "edit" ? items.find((i) => i.item_id === panel.id) : undefined}
-          previousReorderLevel={
-            panel.mode === "edit"
-              ? (itemRows.find((r) => r.item.item_id === panel.id)?.reorderLevel ?? null)
-              : null
-          }
           suppliers={suppliers}
           onCancel={() => setPanel(null)}
           onSubmit={handleItemSubmit}

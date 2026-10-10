@@ -9,7 +9,7 @@ export const itemFormSchema = z.object({
   is_critical: z.boolean(),
   storage: z.string().trim().min(1, "Enter storage conditions"),
   primary_supplier_id: z.coerce.number().int().min(1, "Choose a supplier"),
-  reorder_level: z.coerce.number().min(0, "Must be 0 or more").optional(),
+  reorder_level: z.coerce.number().min(0, "Must be 0 or more"),
 });
 
 export type ItemFormValues = z.infer<typeof itemFormSchema>;

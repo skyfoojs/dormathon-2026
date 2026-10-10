@@ -105,7 +105,7 @@ export const SUPPLIERS: Supplier[] = [
   },
 ];
 
-export const ITEMS: Item[] = [
+export const ITEMS: Omit<Item, "reorder_level">[] = [
   {
     item_id: 1,
     item_name: "Salbutamol 100mcg MDI inhaler",

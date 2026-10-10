@@ -35,6 +35,7 @@ export type Item = {
   is_critical: 0 | 1;
   storage: string;
   primary_supplier_id: number;
+  reorder_level: number | null;
 };
 
 export type HazeApiCategory =

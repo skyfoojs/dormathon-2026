@@ -63,7 +63,7 @@ export function ItemsTable({
     helper.accessor((r) => r.reorderLevel ?? -1, {
       id: "reorderLevel",
       header: "Reorder level",
-      cell: ({ row }) => <span className="font-mono">{row.original.reorderLevel ?? "—"}</span>,
+      cell: ({ row }) => <span className="font-mono">{row.original.reorderLevel ?? "Auto"}</span>,
     }),
     helper.accessor((r) => r.supplierName, {
       id: "supplier",

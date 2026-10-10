@@ -15,6 +15,7 @@ const updateItemSchema = z.object({
   is_critical: z.union([z.literal(0), z.literal(1)]),
   storage: z.string().trim().min(1),
   primary_supplier_id: z.coerce.number().int().min(1),
+  reorder_level: z.coerce.number().min(0).optional(),
 });
 
 type Ctx = { params: Promise<{ id: string }> };

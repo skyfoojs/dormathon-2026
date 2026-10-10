@@ -14,14 +14,12 @@ import type { Item, Supplier } from "@/lib/db/types";
 export function ItemForm({
   mode,
   item,
-  previousReorderLevel,
   suppliers,
   onCancel,
   onSubmit,
 }: {
   mode: "add" | "edit";
   item?: Item;
-  previousReorderLevel: number | null;
   suppliers: Supplier[];
   onCancel: () => void;
   onSubmit: (values: ItemFormValues) => void;
@@ -42,7 +40,7 @@ export function ItemForm({
       is_critical: item ? item.is_critical === 1 : false,
       storage: item?.storage ?? "",
       primary_supplier_id: item?.primary_supplier_id ?? suppliers[0]?.supplier_id,
-      reorder_level: previousReorderLevel ?? undefined,
+      reorder_level: item ? (item.reorder_level ?? undefined) : 0,
     },
   });
 
@@ -53,7 +51,7 @@ export function ItemForm({
       : Number(reorderLevelRaw);
   const unusualNotice =
     reorderLevel !== null && !Number.isNaN(reorderLevel)
-      ? checkReorderLevel(previousReorderLevel, reorderLevel)
+      ? checkReorderLevel(item?.reorder_level ?? null, reorderLevel)
       : null;
 
   return (
@@ -100,12 +98,12 @@ export function ItemForm({
             </Select>
           </Field>
           <Field
-            label="Reorder level at this facility"
+            label="Reorder level (threshold)"
             htmlFor="reorder_level"
-            hint="Updates the latest weekly record for the selected facility."
+            hint="Units. Restock when stock left falls to this. Blank saves as 0."
             error={errors.reorder_level?.message}
           >
-            <Input id="reorder_level" type="number" min="0" {...register("reorder_level")} />
+            <Input id="reorder_level" type="number" min="0" placeholder="0" {...register("reorder_level")} />
           </Field>
         </div>
 

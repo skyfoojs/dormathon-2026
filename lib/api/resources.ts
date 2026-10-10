@@ -134,9 +134,6 @@ export function saveDailyStock(input: DailyStockInput): Promise<DailyStock> {
   return apiFetch<DailyStock>("/api/daily-inventory", { method: "PUT", body: JSON.stringify(input) });
 }
 
-export function updateReorderLevel(recordId: number, reorderLevel: number): Promise<WeeklyInventory> {
-  return apiPatch<WeeklyInventory>(`/api/weekly-inventory/${recordId}`, { reorder_level: reorderLevel });
-}
 
 type ForecastLine = {
   usagePerDay: number;

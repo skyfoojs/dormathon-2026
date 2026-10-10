@@ -7,7 +7,6 @@ export type ItemRow = {
   onHand: number | null;
   coverWeeks: number | null;
   reorderLevel: number | null;
-  latestRecordId: number | null;
 };
 
 export function getItemRows(
@@ -26,8 +25,7 @@ export function getItemRows(
       supplierName: supplier?.supplier_name ?? "—",
       onHand: latest ? latest.closing_stock : null,
       coverWeeks: latest ? latest.weeks_of_cover : null,
-      reorderLevel: latest ? latest.reorder_level : null,
-      latestRecordId: latest ? latest.record_id : null,
+      reorderLevel: item.reorder_level,
     };
   });
 }
