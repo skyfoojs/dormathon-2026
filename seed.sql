@@ -30,17 +30,17 @@ INSERT INTO public.suppliers (supplier_id, supplier_name, supplier_type, state, 
 ON CONFLICT (supplier_id) DO UPDATE SET supplier_name = EXCLUDED.supplier_name, supplier_type = EXCLUDED.supplier_type, state = EXCLUDED.state, lead_time_days = EXCLUDED.lead_time_days, reliability_score = EXCLUDED.reliability_score, country = EXCLUDED.country;
 
 INSERT INTO public.items (item_id, item_name, category, unit, unit_cost_myr, shelf_life_months, is_critical, storage, primary_supplier_id, cover_days, reorder_level) VALUES
-  (1, 'Salbutamol 100mcg MDI inhaler', 'Medication', 'inhaler', 8.5, 24, 1, 'Ambient', 2, NULL, NULL),
-  (2, 'Salbutamol 2.5mg nebule', 'Medication', 'nebule', 0.9, 24, 1, 'Ambient', 3, NULL, NULL),
-  (3, 'Ipratropium 0.5mg nebule', 'Medication', 'nebule', 1.1, 24, 1, 'Ambient', 1, NULL, NULL),
-  (4, 'Budesonide 200mcg inhaler', 'Medication', 'inhaler', 28, 24, 0, 'Ambient', 2, NULL, NULL),
-  (5, 'Prednisolone 5mg tablet', 'Medication', 'tablet', 0.05, 36, 0, 'Ambient', 3, NULL, NULL),
-  (6, 'Hydrocortisone 100mg injection', 'Medication', 'vial', 3.5, 24, 1, 'Ambient', 1, NULL, NULL),
-  (7, 'Oxygen cylinder (E-size) refill', 'Medical Gas', 'cylinder', 25, NULL, 1, 'Gas store', 6, NULL, NULL),
-  (8, 'Nasal cannula', 'Consumable', 'piece', 1.2, 60, 0, 'Ambient', 4, NULL, NULL),
-  (9, 'N95 respirator mask', 'PPE', 'piece', 2.8, 36, 1, 'Ambient', 5, NULL, NULL),
-  (11, 'Nebulizer mask set', 'Consumable', 'set', 2.5, 60, 0, 'Ambient', 5, NULL, NULL)
-ON CONFLICT (item_id) DO UPDATE SET item_name = EXCLUDED.item_name, category = EXCLUDED.category, unit = EXCLUDED.unit, unit_cost_myr = EXCLUDED.unit_cost_myr, shelf_life_months = EXCLUDED.shelf_life_months, is_critical = EXCLUDED.is_critical, storage = EXCLUDED.storage, primary_supplier_id = EXCLUDED.primary_supplier_id, cover_days = EXCLUDED.cover_days, reorder_level = EXCLUDED.reorder_level;
+  (1, 'Salbutamol 100mcg MDI inhaler', 'Medication', 'inhaler', 8.5, 24, 1, 'Ambient', 2, NULL, 0),
+  (2, 'Salbutamol 2.5mg nebule', 'Medication', 'nebule', 0.9, 24, 1, 'Ambient', 3, NULL, 0),
+  (3, 'Ipratropium 0.5mg nebule', 'Medication', 'nebule', 1.1, 24, 1, 'Ambient', 1, NULL, 0),
+  (4, 'Budesonide 200mcg inhaler', 'Medication', 'inhaler', 28, 24, 0, 'Ambient', 2, NULL, 0),
+  (5, 'Prednisolone 5mg tablet', 'Medication', 'tablet', 0.05, 36, 0, 'Ambient', 3, NULL, 0),
+  (6, 'Hydrocortisone 100mg injection', 'Medication', 'vial', 3.5, 24, 1, 'Ambient', 1, NULL, 0),
+  (7, 'Oxygen cylinder (E-size) refill', 'Medical Gas', 'cylinder', 25, NULL, 1, 'Gas store', 6, NULL, 0),
+  (8, 'Nasal cannula', 'Consumable', 'piece', 1.2, 60, 0, 'Ambient', 4, NULL, 0),
+  (9, 'N95 respirator mask', 'PPE', 'piece', 2.8, 36, 1, 'Ambient', 5, NULL, 0),
+  (11, 'Nebulizer mask set', 'Consumable', 'set', 2.5, 60, 0, 'Ambient', 5, NULL, 0)
+ON CONFLICT (item_id) DO UPDATE SET item_name = EXCLUDED.item_name, category = EXCLUDED.category, unit = EXCLUDED.unit, unit_cost_myr = EXCLUDED.unit_cost_myr, shelf_life_months = EXCLUDED.shelf_life_months, is_critical = EXCLUDED.is_critical, storage = EXCLUDED.storage, primary_supplier_id = EXCLUDED.primary_supplier_id, cover_days = EXCLUDED.cover_days, reorder_level = COALESCE(items.reorder_level, EXCLUDED.reorder_level);
 
 INSERT INTO public.haze_api_weekly (facility_id, week_start, api_avg, api_category) VALUES
   (7, '2026-04-13', 33, 'Good'),

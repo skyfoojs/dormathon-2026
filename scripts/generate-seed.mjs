@@ -272,8 +272,8 @@ function insert(table, columns, rows, chunkSize = 250) {
   return statements;
 }
 
-function upsert(table, key, columns, rows) {
-  const updates = columns.filter((c) => c !== key).map((c) => `${c} = EXCLUDED.${c}`);
+function upsert(table, key, columns, rows, updateOverrides = {}) {
+  const updates = columns.filter((c) => c !== key).map((c) => `${c} = ${updateOverrides[c] ?? `EXCLUDED.${c}`}`);
   return insert(table, columns, rows).map((s) => `${s}\nON CONFLICT (${key}) DO UPDATE SET ${updates.join(", ")}`);
 }
 
@@ -329,7 +329,7 @@ for (let day = firstDay; day <= endDay; day += 7) {
   hazeRows.push({ facility_id: FACILITY_ID, week_start: isoDate(day), api_avg: hazeOn(day), api_category: hazeCategory(hazeOn(day)) });
 }
 
-const itemRows = ITEMS.map((item) => ({ ...item, cover_days: null, reorder_level: null }));
+const itemRows = ITEMS.map((item) => ({ ...item, cover_days: null, reorder_level: 0 }));
 const supplierRows = SUPPLIERS.map((supplier) => ({ ...supplier, country: "Malaysia" }));
 
 const statements = [
@@ -339,7 +339,9 @@ const statements = [
   ...upsert("facilities", "facility_id", ["facility_id", "facility_name", "facility_type", "sector", "district", "state", "size_tier"], [FACILITY]),
   // suppliers.email is left as it is: it holds a real address.
   ...upsert("suppliers", "supplier_id", ["supplier_id", "supplier_name", "supplier_type", "state", "lead_time_days", "reliability_score", "country"], supplierRows),
-  ...upsert("items", "item_id", ["item_id", "item_name", "category", "unit", "unit_cost_myr", "shelf_life_months", "is_critical", "storage", "primary_supplier_id", "cover_days", "reorder_level"], itemRows),
+  ...upsert("items", "item_id", ["item_id", "item_name", "category", "unit", "unit_cost_myr", "shelf_life_months", "is_critical", "storage", "primary_supplier_id", "cover_days", "reorder_level"], itemRows, {
+    reorder_level: "COALESCE(items.reorder_level, EXCLUDED.reorder_level)",
+  }),
   ...insert("haze_api_weekly", ["facility_id", "week_start", "api_avg", "api_category"], hazeRows),
   ...insert("daily_inventory", ["facility_id", "item_id", "inventory_date", "opening_stock", "received_qty", "issued_qty", "unmet_demand_qty", "wastage_qty", "closing_stock", "reorder_level", "stockout_flag"], dailyRows),
   ...insert("weekly_inventory", ["record_id", "facility_id", "item_id", "week_start", "opening_stock", "received_qty", "issued_qty", "unmet_demand_qty", "wastage_qty", "closing_stock", "reorder_level", "weeks_of_cover", "stockout_flag", "haze_api_avg"], weeklyRows),
