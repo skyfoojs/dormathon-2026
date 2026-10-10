@@ -24,7 +24,6 @@ import {
   getPoDeliveredKpi,
   getPredictionAccuracyKpi,
 } from "@/lib/data/dashboardReports";
-import { SAMPLE_PENDING_COUNT } from "@/lib/data/dashboardFallback";
 import type { OrderRow } from "@/lib/data/inventory";
 import type { PurchaseOrderStatus } from "@/lib/db/types";
 
@@ -67,24 +66,15 @@ export default function DashboardView() {
 // chart/table query there to resolve - and so she never unmounts/remounts
 // when that content's own loading state changes.
 function AegiHost({ facilityId }: { facilityId: number }) {
-  const reportsQuery = useQuery({
-    queryKey: ["reports", facilityId],
-    queryFn: () => api.getReports(facilityId),
+  const poQuery = useQuery({
+    queryKey: ["purchase-orders", facilityId],
+    queryFn: () => api.getPurchaseOrders(facilityId),
   });
-  const reports = reportsQuery.data ?? [];
-  const reportsAreSample =
-    reportsQuery.data === undefined || reports.length === 0;
-  const pendingCount = reportsAreSample
-    ? SAMPLE_PENDING_COUNT
-    : reports.filter((r) => r.status === "pending_approval").length;
+  const pendingCount = (poQuery.data ?? []).filter(
+    (po) => po.status === "Pending",
+  ).length;
 
-  return (
-    <AegiAvatar
-      pending={pendingCount}
-      sample={reportsAreSample}
-      reviewHref="/orders"
-    />
-  );
+  return <AegiAvatar pending={pendingCount} sample={false} reviewHref="/orders" />;
 }
 
 function DashboardViewContent({
