@@ -16,6 +16,7 @@ export type LlmRequest<S extends z.ZodType> = {
   schemaName: string;
   schema: S;
   seat?: { seatId: number; stage: LlmStage };
+  reasoningEffort?: "low" | "medium" | "high";
 };
 
 export type LlmResult<T> = { callId: number; output: T };
@@ -85,6 +86,7 @@ async function sendChat<S extends z.ZodType>(req: LlmRequest<S>): Promise<Comple
         jsonSchema: { name: req.schemaName, schema: z.toJSONSchema(req.schema), strict: true },
       },
       provider: { requireParameters: true },
+      ...(req.reasoningEffort ? { reasoning: { effort: req.reasoningEffort } } : {}),
     },
   });
   if (!("choices" in result)) {

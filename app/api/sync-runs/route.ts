@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   try {
     const input = startSyncSchema.parse(await readJsonBody(req));
     const run = await startSyncRun("manual", input.scope);
-    after(() => executeSyncRun(run.sync_run_id));
+    after(() => executeSyncRun(run));
     return created(run);
   } catch (err) {
     return errorResponse(err);

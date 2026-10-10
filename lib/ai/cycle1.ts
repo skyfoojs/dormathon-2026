@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
-import { runCouncil, type Persona } from "@/lib/ai/council";
+import { coversAll, runCouncil, type Persona } from "@/lib/ai/council";
 import { HOSPITAL_LOCATION, findItemCategories } from "@/lib/ai/catalog";
 import { PAST_NEWS_WINDOW_DAYS, ageInDays, findRecentNews, type RecentNews } from "@/lib/ai/news";
 
@@ -72,6 +72,7 @@ export async function runCycle1(syncRunId: number): Promise<Cycle1Result> {
     personas: CYCLE1_PERSONAS,
     opinionSchema: verdictsSchema,
     decisionSchema: verdictsSchema,
+    isCompleteOpinion: (opinion) => coversAll(opinion.verdicts.map((v) => v.article_id), unvalidated.map((a) => a.articleId)),
   });
 
   const verdicts = keepRequestedVerdicts(decision.verdicts, unvalidated);

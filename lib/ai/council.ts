@@ -14,6 +14,7 @@ export type CouncilConfig<O extends z.ZodType, D extends z.ZodType> = {
   personas: readonly Persona[];
   opinionSchema: O;
   decisionSchema: D;
+  isCompleteOpinion: (opinion: z.output<O>) => boolean;
 };
 
 export type CouncilOutcome<D> = { councilRunId: number; decision: D };
@@ -24,6 +25,8 @@ type Review = { seat: Seat; review: z.infer<typeof reviewSchema> };
 
 const LABELS = ["A", "B", "C", "D"] as const;
 const MIN_OPINIONS = 2;
+const MEMBER_REASONING_EFFORT = "low";
+const INCOMPLETE_OPINION_ERROR = "Incomplete opinion: did not answer every item";
 
 const reviewSchema = z.object({
   critiques: z.array(z.object({ label: z.string(), strengths: z.string(), concerns: z.string() })),
@@ -114,12 +117,19 @@ async function collectOpinions<O extends z.ZodType, D extends z.ZodType>(
         schemaName: `cycle${config.cycle}_opinion`,
         schema: config.opinionSchema,
         seat: { seatId: seat.seatId, stage: "opinion" },
+        reasoningEffort: MEMBER_REASONING_EFFORT,
       }),
     ),
   );
-  const opinions = results.flatMap((result, i) =>
-    result.status === "fulfilled" ? [{ seat: members[i], response: result.value.output }] : [],
-  );
+  const opinions: Opinion<z.output<O>>[] = [];
+  for (const [i, result] of results.entries()) {
+    if (result.status !== "fulfilled") continue;
+    if (config.isCompleteOpinion(result.value.output)) {
+      opinions.push({ seat: members[i], response: result.value.output });
+    } else {
+      await markCallFailed(result.value.callId, INCOMPLETE_OPINION_ERROR);
+    }
+  }
   if (opinions.length < MIN_OPINIONS) {
     throw new Error(`Cycle ${config.cycle}: only ${opinions.length} council opinions succeeded`);
   }
@@ -145,6 +155,7 @@ async function collectReviews<O extends z.ZodType, D extends z.ZodType>(
         schemaName: `cycle${config.cycle}_review`,
         schema: reviewSchema,
         seat: { seatId: seat.seatId, stage: "review" },
+        reasoningEffort: MEMBER_REASONING_EFFORT,
       }),
     ),
   );
@@ -177,6 +188,16 @@ async function callChairman<O extends z.ZodType, D extends z.ZodType>(
     seat: { seatId: chairmanSeatId, stage: "decision" },
   });
   return output;
+}
+
+export function coversAll(answered: number[], required: number[]): boolean {
+  const ids = new Set(answered);
+  return required.every((id) => ids.has(id));
+}
+
+async function markCallFailed(callId: number, reason: string): Promise<void> {
+  const { error } = await getDb().from("llm_calls").update({ error: reason }).eq("call_id", callId);
+  if (error) throw error;
 }
 
 function memberSystemPrompt(persona: Persona, task: string): string {
