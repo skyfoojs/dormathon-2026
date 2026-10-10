@@ -31,6 +31,7 @@ const STAGE_LABEL: Record<string, string> = {
   cycle1: "Council validating news",
   cycle2: "Council forecasting usage",
   reusing_last_verdict: "No new news, reusing the last verdict",
+  raising_orders: "Raising purchase orders",
 };
 
 export function isActive(run: SyncRun): boolean {

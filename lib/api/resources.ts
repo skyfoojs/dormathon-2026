@@ -13,7 +13,6 @@ import type {
 } from "@/lib/db/types";
 import type { ItemAccuracy } from "@/lib/forecast/accuracy";
 import type { RestockTrigger, StockPoint } from "@/lib/forecast/runout";
-import type { AutomatedOrdersResult } from "@/lib/orders/automatedPurchaseOrders";
 import type { ItemStockStatus } from "@/lib/orders/restockPlan";
 import type { SyncRun, SyncScope } from "@/lib/ai/sync";
 
@@ -334,12 +333,6 @@ export function retryReport(id: number): Promise<Report> {
 
 export function getDemandForecasts(facilityId: number): Promise<DemandForecast[]> {
   return apiGet<DemandForecast[]>(`/api/demand-forecasts?facility_id=${facilityId}`);
-}
-
-// Asks AiGIS to raise the purchase orders it thinks are needed. With dryRun
-// it returns the plan without saving anything.
-export function runAutomatedPurchaseOrders(dryRun = false): Promise<AutomatedOrdersResult> {
-  return apiPost<AutomatedOrdersResult>("/api/purchase-orders/automated", { dry_run: dryRun });
 }
 
 // Whether each item is well stocked or running low, from its prediction.

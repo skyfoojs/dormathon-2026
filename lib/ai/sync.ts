@@ -11,6 +11,7 @@ import { runCycle2 } from "@/lib/ai/cycle2";
 import { deriveAiForecastFields, findLatestAiForecasts, toUsageAdjustment } from "@/lib/ai/aiForecasts";
 import { findLatestForecasts, findLatestInventoryDate, toForecastBasis } from "@/lib/ai/algorithmic";
 import { loadForecastInputs, runForecasts } from "@/lib/forecast/run";
+import { runAutomatedPurchaseOrders } from "@/lib/orders/automatedPurchaseOrders";
 
 export type SyncTrigger = "manual" | "hourly" | "daily";
 export type SyncScope = "news" | "full";
@@ -23,6 +24,7 @@ type SyncStage =
   | "cycle1"
   | "cycle2"
   | "reusing_last_verdict"
+  | "raising_orders"
   | "done";
 
 export const SYNC_TIMEOUT_SECONDS = 300;
@@ -74,6 +76,8 @@ export async function executeSyncRun(run: Pick<SyncRun, "sync_run_id" | "scope">
   const syncRunId = run.sync_run_id;
   try {
     const stockAsOf = await runPipeline(syncRunId, run.scope);
+    await setStage(syncRunId, "raising_orders");
+    await runAutomatedPurchaseOrders({ dryRun: false });
     await finishRun(syncRunId, { status: "succeeded", stage: "done", stock_as_of: stockAsOf, error: null });
   } catch (err) {
     console.error(`Sync run ${syncRunId} failed`, err);

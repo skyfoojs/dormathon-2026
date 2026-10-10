@@ -80,6 +80,7 @@ const STAGE_ORDER: Record<string, number> = {
   cycle1: 3,
   cycle2: 4,
   reusing_last_verdict: 4,
+  raising_orders: 5,
   done: 6,
 };
 
@@ -92,6 +93,7 @@ const RUN_LABEL: Record<string, string> = {
   cycle1: "Council validating news",
   cycle2: "Council forecasting usage",
   reusing_last_verdict: "Reusing last verdict",
+  raising_orders: "Raising purchase orders",
 };
 
 function DoneMark() {
