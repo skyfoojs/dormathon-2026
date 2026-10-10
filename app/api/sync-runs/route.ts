@@ -12,10 +12,22 @@ const startSyncSchema = z.object({
   scope: z.enum(["news", "full"]).default("news"),
 });
 
+const listFilterSchema = z.object({
+  trigger: z.enum(["manual", "auto", "hourly", "daily"]).optional(),
+  scope: z.enum(["news", "full"]).optional(),
+});
+
+type ListFilter = z.infer<typeof listFilterSchema>;
+
 export async function GET(req: Request) {
   try {
-    const pagination = parsePagination(new URL(req.url).searchParams);
-    const runs = await listSyncRuns(pagination);
+    const { searchParams } = new URL(req.url);
+    const pagination = parsePagination(searchParams);
+    const filter = listFilterSchema.parse({
+      trigger: searchParams.get("trigger") ?? undefined,
+      scope: searchParams.get("scope") ?? undefined,
+    });
+    const runs = await listSyncRuns(pagination, filter);
     return ok(runs.rows, { page: pagination.page, pageSize: pagination.pageSize, total: runs.total });
   } catch (err) {
     return errorResponse(err);
@@ -43,11 +55,13 @@ async function readJsonBody(req: Request): Promise<unknown> {
   }
 }
 
-async function listSyncRuns(pagination: Pagination): Promise<{ rows: SyncRun[]; total: number }> {
+async function listSyncRuns(pagination: Pagination, filter: ListFilter): Promise<{ rows: SyncRun[]; total: number }> {
   const [from, to] = toRange(pagination);
-  const { data, count, error } = await getDb()
-    .from("sync_runs")
-    .select(SYNC_RUN_COLUMNS, { count: "exact" })
+  let query = getDb().from("sync_runs").select(SYNC_RUN_COLUMNS, { count: "exact" });
+  if (filter.trigger === "auto") query = query.in("trigger", ["hourly", "daily"]);
+  else if (filter.trigger) query = query.eq("trigger", filter.trigger);
+  if (filter.scope) query = query.eq("scope", filter.scope);
+  const { data, count, error } = await query
     .order("sync_run_id", { ascending: false })
     .range(from, to);
   if (error) throw error;

@@ -49,6 +49,13 @@ export async function findLatestForecasts(itemId?: number): Promise<Map<number, 
   return latest;
 }
 
+export async function findForecastsByIds(ids: number[]): Promise<Map<number, ForecastRow>> {
+  if (ids.length === 0) return new Map();
+  const { data, error } = await getDb().from("demand_forecasts").select(FORECAST_COLUMNS).in("forecast_id", ids);
+  if (error) throw error;
+  return new Map(z.array(forecastRowSchema).parse(data).map((row) => [row.forecast_id, row]));
+}
+
 export async function findLatestInventoryDate(): Promise<string | null> {
   const { data, error } = await getDb()
     .from("daily_inventory")

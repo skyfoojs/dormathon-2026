@@ -9,7 +9,7 @@ import { loadForecastInputs, type ForecastInputs } from "@/lib/forecast/run";
 import type { ForecastItem } from "@/lib/queries/forecastInputs";
 import { PAST_NEWS_WINDOW_DAYS, ageInDays, findRecentNews, type RecentNews } from "@/lib/ai/news";
 
-const CYCLE2_PERSONAS: readonly Persona[] = [
+export const CYCLE2_PERSONAS: readonly Persona[] = [
   {
     name: "Hoarder",
     brief: "You fear stockouts above all. Argue for buying more when there is any credible risk, especially for critical items.",
@@ -39,7 +39,7 @@ const CYCLE2_TASK = [
   "Only use item_id values from items. Return exactly one forecast per item.",
 ].join("\n");
 
-const forecastsSchema = z.object({
+export const forecastsSchema = z.object({
   forecasts: z.array(
     z.object({
       item_id: z.number().int(),

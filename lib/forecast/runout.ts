@@ -40,10 +40,10 @@ export type StockProjection = {
   stockoutDate: string | null;
 };
 
-export function stockHistory(dailyRows: DailyStockRow[]): StockPoint[] {
+export function stockHistory(dailyRows: DailyStockRow[], days = HISTORY_DAYS_SHOWN): StockPoint[] {
   return [...dailyRows]
     .sort((a, b) => a.inventory_date.localeCompare(b.inventory_date))
-    .slice(-HISTORY_DAYS_SHOWN)
+    .slice(-days)
     .map((r) => ({ date: r.inventory_date.slice(0, 10), stock: r.closing_stock }));
 }
 

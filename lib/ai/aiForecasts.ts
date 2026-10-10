@@ -6,10 +6,13 @@ import { buildAiForecast, type UsageAdjustment, type ForecastBasis } from "@/lib
 import type { ForecastInputs } from "@/lib/forecast/run";
 
 const AI_FORECAST_LOOKBACK_ROWS = 2000;
+const LATEST_ROW_COLUMNS =
+  "ai_forecast_id, item_id, forecast_id, sync_run_id, council_run_id, source_ai_forecast_id, threshold, buy_qty";
 
 const latestRowSchema = z.object({
   ai_forecast_id: z.number(),
   item_id: z.number(),
+  forecast_id: z.number(),
   sync_run_id: z.number(),
   council_run_id: z.number().nullable(),
   source_ai_forecast_id: z.number().nullable(),
@@ -29,6 +32,7 @@ const originalRowSchema = z.object({
 export type LatestAiForecast = {
   aiForecastId: number;
   originalAiForecastId: number;
+  forecastId: number;
   syncRunId: number;
   reused: boolean;
   usageMultiplier: number;
@@ -82,18 +86,30 @@ export function deriveAiForecastFields(
 }
 
 export async function findLatestAiForecasts(itemId?: number): Promise<Map<number, LatestAiForecast>> {
-  const latest = await findLatestAiForecastPerItem(itemId);
-  const originalIds = [...new Set(latest.map(originalIdOf))];
+  return withOriginals(await findLatestAiForecastPerItem(itemId));
+}
+
+export async function findRunAiForecasts(syncRunId: number, itemId?: number): Promise<Map<number, LatestAiForecast>> {
+  let query = getDb().from("ai_forecasts").select(LATEST_ROW_COLUMNS).eq("sync_run_id", syncRunId);
+  if (itemId) query = query.eq("item_id", itemId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return withOriginals(z.array(latestRowSchema).parse(data));
+}
+
+async function withOriginals(rows: z.infer<typeof latestRowSchema>[]): Promise<Map<number, LatestAiForecast>> {
+  const originalIds = [...new Set(rows.map(originalIdOf))];
   if (originalIds.length === 0) return new Map();
   const originals = await findOriginals(originalIds);
 
   const adjustments = new Map<number, LatestAiForecast>();
-  for (const row of latest) {
+  for (const row of rows) {
     const original = originals.get(originalIdOf(row));
     if (!original) continue;
     adjustments.set(row.item_id, {
       aiForecastId: row.ai_forecast_id,
       originalAiForecastId: original.ai_forecast_id,
+      forecastId: row.forecast_id,
       syncRunId: row.sync_run_id,
       reused: row.council_run_id === null,
       usageMultiplier: original.usage_multiplier,
@@ -113,9 +129,7 @@ function originalIdOf(row: z.infer<typeof latestRowSchema>): number {
 }
 
 async function findLatestAiForecastPerItem(itemId?: number): Promise<z.infer<typeof latestRowSchema>[]> {
-  let query = getDb()
-    .from("ai_forecasts")
-    .select("ai_forecast_id, item_id, sync_run_id, council_run_id, source_ai_forecast_id, threshold, buy_qty");
+  let query = getDb().from("ai_forecasts").select(LATEST_ROW_COLUMNS);
   if (itemId) query = query.eq("item_id", itemId);
   const { data, error } = await query.order("ai_forecast_id", { ascending: false }).limit(AI_FORECAST_LOOKBACK_ROWS);
   if (error) throw error;

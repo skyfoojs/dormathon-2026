@@ -28,7 +28,7 @@ const MIN_OPINIONS = 2;
 const MEMBER_REASONING_EFFORT = "low";
 const INCOMPLETE_OPINION_ERROR = "Incomplete opinion: did not answer every item";
 
-const reviewSchema = z.object({
+export const reviewSchema = z.object({
   critiques: z.array(z.object({ label: z.string(), strengths: z.string(), concerns: z.string() })),
   ranking: z.array(z.string()),
 });

@@ -5,7 +5,7 @@ import { coversAll, runCouncil, type Persona } from "@/lib/ai/council";
 import { HOSPITAL_LOCATION, findItemCategories } from "@/lib/ai/catalog";
 import { PAST_NEWS_WINDOW_DAYS, ageInDays, findRecentNews, type RecentNews } from "@/lib/ai/news";
 
-const CYCLE1_PERSONAS: readonly Persona[] = [
+export const CYCLE1_PERSONAS: readonly Persona[] = [
   {
     name: "Skeptic",
     brief: "You doubt the news. Flag hype, single-source claims, unverified numbers and overreaction.",
@@ -33,7 +33,7 @@ const CYCLE1_TASK = [
   "Return exactly one verdict per article_id in new_articles.",
 ].join("\n");
 
-const verdictsSchema = z.object({
+export const verdictsSchema = z.object({
   verdicts: z.array(
     z.object({
       article_id: z.number().int(),

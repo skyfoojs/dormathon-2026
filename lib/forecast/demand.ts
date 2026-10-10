@@ -209,14 +209,17 @@ export function measureLeadDays(
 // damped trend keeps changing usage over the horizon, which bends the
 // projected stock line; damping stops it running away over long horizons.
 export function usageOnDay(forecast: UsageCurve, h: number): number {
-  if (forecast.holtLevel === null || forecast.holtTrend === null || forecast.wmaQty === null) {
-    return forecast.usagePerDay;
-  }
-  const phi = forecast.phi;
-  const trendSteps = phi === 1 ? h : (phi * (1 - phi ** h)) / (1 - phi);
-  const holtPart = Math.max(forecast.holtLevel + forecast.holtTrend * trendSteps, 0);
+  const holtPart = holtOnDay(forecast, h);
+  if (holtPart === null || forecast.wmaQty === null) return forecast.usagePerDay;
   const weight = forecast.holtWeight ?? 0.5;
   return Math.max(weight * holtPart + (1 - weight) * forecast.wmaQty, 0);
+}
+
+export function holtOnDay(forecast: UsageCurve, h: number): number | null {
+  if (forecast.holtLevel === null || forecast.holtTrend === null) return null;
+  const phi = forecast.phi;
+  const trendSteps = phi === 1 ? h : (phi * (1 - phi ** h)) / (1 - phi);
+  return Math.max(forecast.holtLevel + forecast.holtTrend * trendSteps, 0);
 }
 
 export function sumUsage(usage: UsageOnDay, days: number): number {
