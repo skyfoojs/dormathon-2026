@@ -4,6 +4,7 @@ import {
   ConflictError,
   NotFoundError,
   ServiceUnavailableError,
+  UnauthorizedError,
   ValidationError,
 } from "@/lib/errors";
 
@@ -31,6 +32,9 @@ export function errorResponse(err: unknown) {
       { error: { code: "VALIDATION_ERROR", message: err.message, details: err.details } },
       { status: 400 },
     );
+  }
+  if (err instanceof UnauthorizedError) {
+    return NextResponse.json({ error: { code: "UNAUTHORIZED", message: err.message } }, { status: 401 });
   }
   if (err instanceof NotFoundError) {
     return NextResponse.json({ error: { code: "NOT_FOUND", message: err.message } }, { status: 404 });

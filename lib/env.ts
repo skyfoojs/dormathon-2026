@@ -7,6 +7,7 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   OPENROUTER_MODEL: z.string().min(1).optional(),
   WAQI_API_TOKEN: z.string().min(1).optional(),
+  CRON_SECRET: z.string().min(16).optional(),
 });
 
 export const env = envSchema.parse({
@@ -16,6 +17,7 @@ export const env = envSchema.parse({
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
   WAQI_API_TOKEN: process.env.WAQI_API_TOKEN,
+  CRON_SECRET: process.env.CRON_SECRET,
 });
 
 export function isSupabaseConfigured(): boolean {

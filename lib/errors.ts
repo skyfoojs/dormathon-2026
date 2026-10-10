@@ -27,3 +27,10 @@ export class ServiceUnavailableError extends Error {
     this.name = "ServiceUnavailableError";
   }
 }
+
+export class UnauthorizedError extends Error {
+  constructor(message = "Unauthorized") {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
