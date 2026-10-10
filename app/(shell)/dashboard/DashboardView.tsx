@@ -2,17 +2,16 @@
 
 import * as React from "react";
 import { format } from "date-fns";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DashboardKpiCard } from "@/components/dashboard/DashboardKpiCard";
-import { ReportStatusDonut } from "@/components/dashboard/ReportStatusDonut";
+import { StatusDonut, type StatusDonutSegment } from "@/components/dashboard/StatusDonut";
 import { AutomatedOrdersCard } from "@/components/dashboard/AutomatedOrdersCard";
-import { ExpectedVsActualCard } from "@/components/dashboard/ExpectedVsActualCard";
-import { ReviewDialog } from "@/components/dashboard/ReviewDialog";
-import { AllReportsDialog } from "@/components/dashboard/AllReportsDialog";
+import { PredictionAccuracyCard } from "@/components/dashboard/PredictionAccuracyCard";
 import { AegiAvatar } from "@/components/dashboard/AegiAvatar";
 import { useFacility } from "@/components/providers/FacilityProvider";
 import * as api from "@/lib/api/resources";
+import { buildOverallAccuracy } from "@/lib/forecast/accuracy";
 import {
   accuracyTheme,
   KPI_ICON_PATHS,
@@ -21,24 +20,33 @@ import {
 } from "@/lib/data/kpiStyle";
 import { getPurchaseOrderRows, groupOrderRows } from "@/lib/data/inventory";
 import {
-  getExpectedVsActualSeries,
   getItemsWellStockedKpi,
   getPoDeliveredKpi,
   getPredictionAccuracyKpi,
-  getProductAccuracy,
-  getReportStatusBreakdown,
 } from "@/lib/data/dashboardReports";
-import {
-  isSampleReportId,
-  SAMPLE_PENDING_COUNT,
-  sampleExpectedVsActual,
-  sampleProductAccuracy,
-  sampleReports,
-  sampleStatusBreakdown,
-} from "@/lib/data/dashboardFallback";
-import type { Report, ReportStatus } from "@/lib/db/types";
+import { SAMPLE_PENDING_COUNT } from "@/lib/data/dashboardFallback";
+import type { OrderRow } from "@/lib/data/inventory";
+import type { PurchaseOrderStatus } from "@/lib/db/types";
 
-const DEFAULT_CHART_ITEM_ID = 1; // Salbutamol 100mcg MDI inhaler
+// The order statuses in the order an order moves through them, with the
+// colour each one takes on the status chart.
+const ORDER_STATUS_SEGMENTS: { status: PurchaseOrderStatus; colorVar: string; dotClass: string }[] = [
+  { status: "Pending", colorVar: "var(--color-violet-text)", dotClass: "bg-violet-text" },
+  { status: "In transit", colorVar: "var(--color-blue-light)", dotClass: "bg-blue-light" },
+  { status: "Delivered", colorVar: "var(--color-green-text)", dotClass: "bg-green-text" },
+  { status: "Cancelled", colorVar: "var(--color-line-strong)", dotClass: "bg-line-strong" },
+];
+
+function getOrderStatusSegments(orders: OrderRow[]): StatusDonutSegment[] {
+  return ORDER_STATUS_SEGMENTS.map(({ status, colorVar, dotClass }) => ({
+    key: status,
+    label: status,
+    count: orders.filter((o) => o.po.status === status).length,
+    colorVar,
+    dotClass,
+  }));
+}
+
 
 export default function DashboardView() {
   const { facilityId, facility } = useFacility();
@@ -86,16 +94,6 @@ function DashboardViewContent({
   facilityId: number;
   facilityName: string;
 }) {
-  const qc = useQueryClient();
-  const [selectedItemId, setSelectedItemId] = React.useState<number>(
-    DEFAULT_CHART_ITEM_ID,
-  );
-  const [reviewing, setReviewing] = React.useState<Report | null>(null);
-  const [allReportsOpen, setAllReportsOpen] = React.useState(false);
-  const [allReportsFilter, setAllReportsFilter] = React.useState<
-    "all" | ReportStatus
-  >("all");
-
   const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
   const suppliersQuery = useQuery({
     queryKey: ["suppliers"],
@@ -113,53 +111,16 @@ function DashboardViewContent({
     queryKey: ["purchase-orders", facilityId],
     queryFn: () => api.getPurchaseOrders(facilityId),
   });
-  const reportsQuery = useQuery({
-    queryKey: ["reports", facilityId],
-    queryFn: () => api.getReports(facilityId),
-  });
-  const forecastsQuery = useQuery({
-    queryKey: ["demand-forecasts", facilityId],
-    queryFn: () => api.getDemandForecasts(facilityId),
-  });
-
-  const invalidateReports = () =>
-    qc.invalidateQueries({ queryKey: ["reports", facilityId] });
-
-  const approveMutation = useMutation({
-    mutationFn: api.approveReport,
-    onSuccess: invalidateReports,
-  });
-  const rejectMutation = useMutation({
-    mutationFn: api.rejectReport,
-    onSuccess: invalidateReports,
-  });
-  const retryMutation = useMutation({
-    mutationFn: api.retryReport,
-    onSuccess: invalidateReports,
-  });
-  const resetMutation = useMutation({
-    mutationFn: () => api.seedReports(facilityId, true),
-    onSuccess: invalidateReports,
+  const accuracyQuery = useQuery({
+    queryKey: ["forecast-accuracy"],
+    queryFn: api.getForecastAccuracy,
   });
 
   const loading =
     itemsQuery.isLoading ||
     weeklyInventoryQuery.isLoading ||
     poQuery.isLoading ||
-    reportsQuery.isLoading ||
-    forecastsQuery.isLoading;
-
-  // Seed reports once if this facility has none yet.
-  React.useEffect(() => {
-    if (
-      reportsQuery.data &&
-      reportsQuery.data.length === 0 &&
-      !resetMutation.isPending
-    ) {
-      api.seedReports(facilityId).then(invalidateReports);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportsQuery.data, facilityId]);
+    accuracyQuery.isLoading;
 
   // Aegi mounts as soon as the facility is known (see the outer DashboardView
   // component), independent of this `loading` gate below, so she doesn't wait
@@ -179,21 +140,10 @@ function DashboardViewContent({
   const weeklyInventory = weeklyInventoryQuery.data ?? [];
   const liveHaze = liveHazeQuery.data ?? null;
   const purchaseOrders = poQuery.data ?? [];
-  const reports = reportsQuery.data ?? [];
-  const forecasts = forecastsQuery.data ?? [];
 
   const poDelivered = getPoDeliveredKpi(purchaseOrders);
   const wellStocked = getItemsWellStockedKpi(weeklyInventory);
 
-  // Both the reports workflow and the forecast backtest depend on tables
-  // that may not be migrated yet (see dashboardFallback.ts). When either
-  // comes back empty, fall back to clearly-tagged sample data instead of an
-  // all-zero dashboard.
-  const reportsAreSample = reports.length === 0;
-  const effectiveReports = reportsAreSample ? sampleReports() : reports;
-  const statusBreakdown = reportsAreSample
-    ? sampleStatusBreakdown()
-    : getReportStatusBreakdown(reports);
   const orders = groupOrderRows(
     getPurchaseOrderRows(
       facilityId,
@@ -203,18 +153,10 @@ function DashboardViewContent({
     ),
   );
 
-  const forecastsAreSample = forecasts.length === 0;
-  const productAccuracy = forecastsAreSample
-    ? sampleProductAccuracy(items)
-    : getProductAccuracy(forecasts, items);
+  // Real weekly accuracy, scored against recorded usage (lib/forecast/accuracy.ts).
+  const productAccuracy = accuracyQuery.data ?? [];
   const accuracyKpi = getPredictionAccuracyKpi(productAccuracy);
-
-  const selectedItem = items.find((i) => i.item_id === selectedItemId);
-  const selectedStats =
-    productAccuracy.find((p) => p.itemId === selectedItemId) ?? null;
-  const chartPoints = forecastsAreSample
-    ? sampleExpectedVsActual(selectedItemId)
-    : getExpectedVsActualSeries(forecasts, selectedItemId);
+  const overallAccuracy = buildOverallAccuracy(productAccuracy);
 
   const todayLine = `${format(new Date(), "EEEE d MMMM yyyy")} · ${facilityName}`;
 
@@ -232,7 +174,6 @@ function DashboardViewContent({
       >
         <DashboardKpiCard
           label="Air pollution index"
-          provenance="public-evidence"
           value={liveHaze ? String(liveHaze.apiAvg) : "—"}
           sub={liveHaze ? liveHaze.category : "Live reading unavailable."}
           iconPath={KPI_ICON_PATHS.air}
@@ -241,7 +182,6 @@ function DashboardViewContent({
         />
         <DashboardKpiCard
           label="Purchase orders delivered"
-          provenance="database"
           value={
             poHasData ? `${poDelivered.delivered} of ${poDelivered.total}` : "—"
           }
@@ -256,7 +196,6 @@ function DashboardViewContent({
         />
         <DashboardKpiCard
           label="Prediction accuracy"
-          provenance="synthetic-data"
           value={
             accuracyHasData ? `${accuracyKpi.meanAccuracy.toFixed(1)}%` : "—"
           }
@@ -275,7 +214,6 @@ function DashboardViewContent({
         />
         <DashboardKpiCard
           label="Items well stocked"
-          provenance="model-output"
           value={
             stockHasData
               ? `${wellStocked.wellStocked} of ${wellStocked.total}`
@@ -294,13 +232,10 @@ function DashboardViewContent({
 
       <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-1">
-          <ReportStatusDonut
-            breakdown={statusBreakdown}
-            sample={reportsAreSample}
-            onSelectStatus={(status) => {
-              setAllReportsFilter(status);
-              setAllReportsOpen(true);
-            }}
+          <StatusDonut
+            title="Purchase order status"
+            unitLabel="Orders"
+            segments={getOrderStatusSegments(orders)}
           />
         </div>
         <div className="min-w-0 lg:col-span-2">
@@ -308,45 +243,7 @@ function DashboardViewContent({
         </div>
       </div>
 
-      <ExpectedVsActualCard
-        itemName={selectedItem?.item_name ?? "Item"}
-        points={chartPoints}
-        stats={selectedStats}
-        products={productAccuracy}
-        selectedItemId={selectedItemId}
-        onSelectItem={setSelectedItemId}
-        sample={forecastsAreSample}
-      />
-
-      <ReviewDialog
-        report={reviewing}
-        open={reviewing !== null}
-        onOpenChange={(open) => !open && setReviewing(null)}
-        onApprove={(id) => {
-          if (!isSampleReportId(id)) approveMutation.mutate(id);
-          setReviewing(null);
-        }}
-        onReject={(id) => {
-          if (!isSampleReportId(id)) rejectMutation.mutate(id);
-          setReviewing(null);
-        }}
-        onRetry={(id) => {
-          if (!isSampleReportId(id)) retryMutation.mutate(id);
-          setReviewing(null);
-        }}
-        backLabel={allReportsOpen ? "Back to all reports" : "Close"}
-      />
-
-      <AllReportsDialog
-        open={allReportsOpen}
-        onOpenChange={setAllReportsOpen}
-        reports={effectiveReports}
-        initialFilter={allReportsFilter}
-        onReview={(r) => {
-          setAllReportsOpen(false);
-          setReviewing(r);
-        }}
-      />
+      <PredictionAccuracyCard overall={overallAccuracy} />
     </>
   );
 }

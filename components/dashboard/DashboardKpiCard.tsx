@@ -1,5 +1,4 @@
 import { Card } from "@/components/ui/Card";
-import { ProvenanceTag, type ProvenanceKind } from "@/components/ui/Tag";
 import { cn } from "@/lib/cn";
 import type { KpiTheme } from "@/lib/data/kpiStyle";
 
@@ -9,7 +8,6 @@ import type { KpiTheme } from "@/lib/data/kpiStyle";
 // simpler anatomy that must not change.
 export function DashboardKpiCard({
   label,
-  provenance,
   value,
   sub,
   iconPath,
@@ -17,7 +15,6 @@ export function DashboardKpiCard({
   delayMs = 0,
 }: {
   label: string;
-  provenance: ProvenanceKind;
   value: string;
   sub: string;
   iconPath: string;
@@ -60,10 +57,7 @@ export function DashboardKpiCard({
         </span>
       </div>
       <div className={cn("font-mono text-4xl leading-none font-medium", theme.valueText)}>{value}</div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className={cn("text-sm font-semibold", theme.subText)}>{sub}</span>
-        <ProvenanceTag kind={provenance} />
-      </div>
+      <span className={cn("text-sm font-semibold", theme.subText)}>{sub}</span>
     </Card>
   );
 }

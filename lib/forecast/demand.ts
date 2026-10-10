@@ -212,6 +212,27 @@ function holtWeightFromErrors(holtMae: number, wmaMae: number): number {
   return Math.min(MAX_WEIGHT, Math.max(MIN_WEIGHT, raw));
 }
 
+export type BacktestWeek = { weekStart: string; actualQty: number; forecastQty: number };
+
+// The combined forecast for each past week, made only from the weeks before
+// it, next to what actually happened. Uses the same tuned Holt parameters and
+// method weights as forecastItem, so it scores the forecast the app serves.
+export function backtestWeeklyForecasts(series: DemandPoint[]): BacktestWeek[] {
+  const y = series.map((p) => p.demand);
+  if (y.length <= MIN_WEEKS_FOR_METHODS) return [];
+  const { alpha, beta } = tuneHolt(y);
+  const scored = backtest(y, alpha, beta);
+  const weight =
+    scored.actual.length >= MIN_ERRORS_FOR_SCORING
+      ? holtWeightFromErrors(mae(scored.holt, scored.actual), mae(scored.wma, scored.actual))
+      : 0.5;
+  return scored.actual.map((actualQty, i) => ({
+    weekStart: series[i + MIN_WEEKS_FOR_METHODS].weekStart,
+    actualQty,
+    forecastQty: weight * scored.holt[i] + (1 - weight) * scored.wma[i],
+  }));
+}
+
 type SupplyParams = { reviewWeeks: number; leadWeeks: number; fillRate: number; onOrder: number };
 
 function daysBetween(fromIso: string, toIso: string): number {
