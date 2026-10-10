@@ -11,6 +11,7 @@ import type {
   Supplier,
   WeeklyInventory,
 } from "@/lib/db/types";
+import type { StockProjection } from "@/lib/forecast/runout";
 import type { WarningRecord } from "@/lib/data/warnings";
 
 export function getFacilities(): Promise<Facility[]> {
@@ -76,6 +77,17 @@ export function getWeeklyInventory(facilityId: number, itemId?: number, weeks = 
 
 export function updateReorderLevel(recordId: number, reorderLevel: number): Promise<WeeklyInventory> {
   return apiPatch<WeeklyInventory>(`/api/weekly-inventory/${recordId}`, { reorder_level: reorderLevel });
+}
+
+export type ItemStockProjection = StockProjection & {
+  itemId: number;
+  itemName: string;
+  unit: string;
+  weeklyForecastQty: number;
+};
+
+export function getStockProjection(itemId: number): Promise<ItemStockProjection> {
+  return apiGet<ItemStockProjection>(`/api/forecasts/${itemId}`);
 }
 
 export function getHaze(facilityId: number): Promise<HazeApiWeekly[]> {
