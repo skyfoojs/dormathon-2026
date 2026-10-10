@@ -50,7 +50,7 @@ CREATE TABLE public.items (
   storage text,                        -- Ambient | Cold chain (2-8C) | Gas store
   primary_supplier_id bigint,
   cover_days integer CHECK (cover_days > 0),  -- user input: how many days one purchase should last (buy amount = usage/day x cover_days + buffer)
-  reorder_level double precision CHECK (reorder_level >= 0),  -- user input (UI pending): restock threshold. NULL = use the forecast's reorder point
+  reorder_level double precision DEFAULT 0 CHECK (reorder_level >= 0),  -- user input: restock threshold in units (default 0). NULL = use the forecast's reorder point
   created_at timestamptz NOT NULL DEFAULT now(),  -- when the row was inserted
   CONSTRAINT items_pkey PRIMARY KEY (item_id),
   CONSTRAINT items_primary_supplier_id_fkey FOREIGN KEY (primary_supplier_id) REFERENCES public.suppliers(supplier_id)
