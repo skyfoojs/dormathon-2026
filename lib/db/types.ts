@@ -111,14 +111,54 @@ export type Batch = {
   expiry_date: string | null; // ISO date, null for non-expiring items
 };
 
-// One stored forecast for a single day (public.demand_forecasts, one row per
-// item per run), already scored where the real usage for that day is known.
-// `expected` is the model's usage_per_day; `actual` is null until that day's
-// real usage has been recorded.
+// Proposed schema addition (Dashboard revamp): no reports table exists yet.
+export type ReportType = "purchase_order_report" | "analytics_report";
+export type ReportStatus =
+  | "pending_approval"
+  | "sent"
+  | "confirmed_by_supplier"
+  | "delivery_failed"
+  | "rejected";
+
+export type ReportBodyLine = { label: string; value: string };
+
+export type Report = {
+  report_id: number;
+  report_code: string; // e.g. "R-0412"
+  facility_id: number;
+  report_type: ReportType;
+  title: string;
+  recipient: string; // supplier name, or a "[PLACEHOLDER]" when unknown
+  status: ReportStatus;
+  generated_at: string; // ISO datetime
+  approved_by: string | null;
+  approved_at: string | null; // ISO datetime
+  note: string | null;
+  body_lines: ReportBodyLine[];
+  reason: string | null;
+  item_id: number | null;
+  supplier_id: number | null;
+  po_id: number | null;
+};
+
+// Proposed schema addition, stored as `demand_forecast_backtests` (NOT
+// `demand_forecasts`: that table already exists with a different, unrelated
+// schema - one forward-looking order-quantity row per item, no facility_id,
+// no history. This table instead holds a rolling one-week-ahead backtest
+// per facility/item/week, scored against the real outcome, which is what
+// the Dashboard's accuracy chart needs).
 export type DemandForecast = {
+  forecast_id: number;
+  facility_id: number;
   item_id: number;
-  forecast_date: string; // ISO date
-  expected_qty: number;
+  made_on: string; // ISO date
+  target_week_start: string; // ISO date
+  history_weeks: number | null;
+  alpha: number | null;
+  beta: number | null;
+  holt_qty: number | null;
+  wma_qty: number | null;
+  avg_qty: number | null;
   actual_qty: number | null;
 };
 

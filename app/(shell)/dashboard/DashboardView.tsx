@@ -5,12 +5,13 @@ import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DashboardKpiCard } from "@/components/dashboard/DashboardKpiCard";
-import { PurchaseOrderStatusDonut } from "@/components/dashboard/PurchaseOrderStatusDonut";
+import { StatusDonut, type StatusDonutSegment } from "@/components/dashboard/StatusDonut";
 import { AutomatedOrdersCard } from "@/components/dashboard/AutomatedOrdersCard";
-import { ExpectedVsActualCard } from "@/components/dashboard/ExpectedVsActualCard";
+import { PredictionAccuracyCard } from "@/components/dashboard/PredictionAccuracyCard";
 import { AegiAvatar } from "@/components/dashboard/AegiAvatar";
 import { useFacility } from "@/components/providers/FacilityProvider";
 import * as api from "@/lib/api/resources";
+import { buildOverallAccuracy } from "@/lib/forecast/accuracy";
 import {
   accuracyTheme,
   KPI_ICON_PATHS,
@@ -19,16 +20,33 @@ import {
 } from "@/lib/data/kpiStyle";
 import { getPurchaseOrderRows, groupOrderRows } from "@/lib/data/inventory";
 import {
-  getExpectedVsActualSeries,
   getItemsWellStockedKpi,
   getPoDeliveredKpi,
   getPredictionAccuracyKpi,
-  getProductAccuracy,
-  getPurchaseOrderStatusBreakdown,
 } from "@/lib/data/dashboardReports";
-import { sampleExpectedVsActual, sampleProductAccuracy } from "@/lib/data/dashboardFallback";
+import { SAMPLE_PENDING_COUNT } from "@/lib/data/dashboardFallback";
+import type { OrderRow } from "@/lib/data/inventory";
+import type { PurchaseOrderStatus } from "@/lib/db/types";
 
-const DEFAULT_CHART_ITEM_ID = 1; // Salbutamol 100mcg MDI inhaler
+// The order statuses in the order an order moves through them, with the
+// colour each one takes on the status chart.
+const ORDER_STATUS_SEGMENTS: { status: PurchaseOrderStatus; colorVar: string; dotClass: string }[] = [
+  { status: "Pending", colorVar: "var(--color-violet-text)", dotClass: "bg-violet-text" },
+  { status: "In transit", colorVar: "var(--color-blue-light)", dotClass: "bg-blue-light" },
+  { status: "Delivered", colorVar: "var(--color-green-text)", dotClass: "bg-green-text" },
+  { status: "Cancelled", colorVar: "var(--color-line-strong)", dotClass: "bg-line-strong" },
+];
+
+function getOrderStatusSegments(orders: OrderRow[]): StatusDonutSegment[] {
+  return ORDER_STATUS_SEGMENTS.map(({ status, colorVar, dotClass }) => ({
+    key: status,
+    label: status,
+    count: orders.filter((o) => o.po.status === status).length,
+    colorVar,
+    dotClass,
+  }));
+}
+
 
 export default function DashboardView() {
   const { facilityId, facility } = useFacility();
@@ -49,13 +67,24 @@ export default function DashboardView() {
 // chart/table query there to resolve - and so she never unmounts/remounts
 // when that content's own loading state changes.
 function AegiHost({ facilityId }: { facilityId: number }) {
-  const poQuery = useQuery({
-    queryKey: ["purchase-orders", facilityId],
-    queryFn: () => api.getPurchaseOrders(facilityId),
+  const reportsQuery = useQuery({
+    queryKey: ["reports", facilityId],
+    queryFn: () => api.getReports(facilityId),
   });
-  const pendingCount = (poQuery.data ?? []).filter((po) => po.status === "Pending").length;
+  const reports = reportsQuery.data ?? [];
+  const reportsAreSample =
+    reportsQuery.data === undefined || reports.length === 0;
+  const pendingCount = reportsAreSample
+    ? SAMPLE_PENDING_COUNT
+    : reports.filter((r) => r.status === "pending_approval").length;
 
-  return <AegiAvatar pending={pendingCount} sample={false} reviewHref="/orders" />;
+  return (
+    <AegiAvatar
+      pending={pendingCount}
+      sample={reportsAreSample}
+      reviewHref="/orders"
+    />
+  );
 }
 
 function DashboardViewContent({
@@ -65,17 +94,14 @@ function DashboardViewContent({
   facilityId: number;
   facilityName: string;
 }) {
-  const [selectedItemId, setSelectedItemId] = React.useState<number>(
-    DEFAULT_CHART_ITEM_ID,
-  );
   const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
   const suppliersQuery = useQuery({
     queryKey: ["suppliers"],
     queryFn: api.getSuppliers,
   });
-  const weeklyInventoryQuery = useQuery({
-    queryKey: ["weekly-inventory", facilityId],
-    queryFn: () => api.getWeeklyInventory(facilityId),
+  const stockStatusQuery = useQuery({
+    queryKey: ["stock-status"],
+    queryFn: api.getStockStatus,
   });
   const liveHazeQuery = useQuery({
     queryKey: ["haze-live"],
@@ -85,16 +111,16 @@ function DashboardViewContent({
     queryKey: ["purchase-orders", facilityId],
     queryFn: () => api.getPurchaseOrders(facilityId),
   });
-  const forecastsQuery = useQuery({
-    queryKey: ["demand-forecasts", facilityId],
-    queryFn: () => api.getDemandForecasts(facilityId),
+  const accuracyQuery = useQuery({
+    queryKey: ["forecast-accuracy"],
+    queryFn: api.getForecastAccuracy,
   });
 
   const loading =
     itemsQuery.isLoading ||
-    weeklyInventoryQuery.isLoading ||
+    stockStatusQuery.isLoading ||
     poQuery.isLoading ||
-    forecastsQuery.isLoading;
+    accuracyQuery.isLoading;
 
   // Aegi mounts as soon as the facility is known (see the outer DashboardView
   // component), independent of this `loading` gate below, so she doesn't wait
@@ -111,15 +137,12 @@ function DashboardViewContent({
   }
 
   const items = itemsQuery.data ?? [];
-  const weeklyInventory = weeklyInventoryQuery.data ?? [];
   const liveHaze = liveHazeQuery.data ?? null;
   const purchaseOrders = poQuery.data ?? [];
-  const forecasts = forecastsQuery.data ?? [];
 
   const poDelivered = getPoDeliveredKpi(purchaseOrders);
-  const wellStocked = getItemsWellStockedKpi(weeklyInventory);
+  const wellStocked = getItemsWellStockedKpi(stockStatusQuery.data ?? []);
 
-  const statusBreakdown = getPurchaseOrderStatusBreakdown(purchaseOrders);
   const orders = groupOrderRows(
     getPurchaseOrderRows(
       facilityId,
@@ -129,19 +152,10 @@ function DashboardViewContent({
     ),
   );
 
-  // Stored forecasts only become scoreable once their day has real recorded
-  // usage; until at least one has, show clearly-tagged sample data.
-  const realAccuracy = getProductAccuracy(forecasts, items);
-  const forecastsAreSample = realAccuracy.length === 0;
-  const productAccuracy = forecastsAreSample ? sampleProductAccuracy(items) : realAccuracy;
+  // Real weekly accuracy, scored against recorded usage (lib/forecast/accuracy.ts).
+  const productAccuracy = accuracyQuery.data ?? [];
   const accuracyKpi = getPredictionAccuracyKpi(productAccuracy);
-
-  const selectedItem = items.find((i) => i.item_id === selectedItemId);
-  const selectedStats =
-    productAccuracy.find((p) => p.itemId === selectedItemId) ?? null;
-  const chartPoints = forecastsAreSample
-    ? sampleExpectedVsActual(selectedItemId)
-    : getExpectedVsActualSeries(forecasts, selectedItemId);
+  const overallAccuracy = buildOverallAccuracy(productAccuracy);
 
   const todayLine = `${format(new Date(), "EEEE d MMMM yyyy")} · ${facilityName}`;
 
@@ -159,7 +173,6 @@ function DashboardViewContent({
       >
         <DashboardKpiCard
           label="Air pollution index"
-          provenance="public-evidence"
           value={liveHaze ? String(liveHaze.apiAvg) : "—"}
           sub={liveHaze ? liveHaze.category : "Live reading unavailable."}
           iconPath={KPI_ICON_PATHS.air}
@@ -168,7 +181,6 @@ function DashboardViewContent({
         />
         <DashboardKpiCard
           label="Purchase orders delivered"
-          provenance="database"
           value={
             poHasData ? `${poDelivered.delivered} of ${poDelivered.total}` : "—"
           }
@@ -183,7 +195,6 @@ function DashboardViewContent({
         />
         <DashboardKpiCard
           label="Prediction accuracy"
-          provenance="synthetic-data"
           value={
             accuracyHasData ? `${accuracyKpi.meanAccuracy.toFixed(1)}%` : "—"
           }
@@ -202,7 +213,6 @@ function DashboardViewContent({
         />
         <DashboardKpiCard
           label="Items well stocked"
-          provenance="model-output"
           value={
             stockHasData
               ? `${wellStocked.wellStocked} of ${wellStocked.total}`
@@ -221,22 +231,18 @@ function DashboardViewContent({
 
       <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-1">
-          <PurchaseOrderStatusDonut breakdown={statusBreakdown} />
+          <StatusDonut
+            title="Purchase order status"
+            unitLabel="Orders"
+            segments={getOrderStatusSegments(orders)}
+          />
         </div>
         <div className="min-w-0 lg:col-span-2">
           <AutomatedOrdersCard orders={orders} />
         </div>
       </div>
 
-      <ExpectedVsActualCard
-        itemName={selectedItem?.item_name ?? "Item"}
-        points={chartPoints}
-        stats={selectedStats}
-        products={productAccuracy}
-        selectedItemId={selectedItemId}
-        onSelectItem={setSelectedItemId}
-        sample={forecastsAreSample}
-      />
+      <PredictionAccuracyCard overall={overallAccuracy} />
     </>
   );
 }

@@ -5,13 +5,16 @@ import type {
   Facility,
   HazeApiWeekly,
   Item,
-  Policy,
   PurchaseOrder,
+  Report,
+  ReportStatus,
   Supplier,
   WeeklyInventory,
 } from "@/lib/db/types";
+import type { ItemAccuracy } from "@/lib/forecast/accuracy";
 import type { RestockTrigger, StockPoint } from "@/lib/forecast/runout";
 import type { AutomatedOrdersResult } from "@/lib/orders/automatedPurchaseOrders";
+import type { ItemStockStatus } from "@/lib/orders/restockPlan";
 
 export function getFacilities(): Promise<Facility[]> {
   return apiGet<Facility[]>("/api/facilities");
@@ -159,25 +162,42 @@ export function getLiveHaze(): Promise<LiveHaze> {
   return apiGet<LiveHaze>("/api/haze-live");
 }
 
-export function getDemandForecasts(facilityId: number): Promise<DemandForecast[]> {
-  return apiGet<DemandForecast[]>(`/api/demand-forecasts?facility_id=${facilityId}`);
+export function getReports(facilityId: number, status?: ReportStatus): Promise<Report[]> {
+  const params = new URLSearchParams({ facility_id: String(facilityId) });
+  if (status) params.set("status", status);
+  return apiGet<Report[]>(`/api/reports?${params}`);
 }
 
-export function getPolicies(): Promise<Policy[]> {
-  return apiGet<Policy[]>("/api/policies?pageSize=100");
+export function seedReports(facilityId: number, reset = false): Promise<{ seeded: number }> {
+  return apiPost<{ seeded: number }>("/api/reports/seed", { facility_id: facilityId, reset });
 }
-export function createPolicy(description: string): Promise<Policy> {
-  return apiPost<Policy>("/api/policies", { description });
+
+export function approveReport(id: number): Promise<Report> {
+  return apiPatch<Report>(`/api/reports/${id}`, { action: "approve" });
 }
-export function updatePolicy(id: number, description: string): Promise<Policy> {
-  return apiPatch<Policy>(`/api/policies/${id}`, { description });
+export function rejectReport(id: number): Promise<Report> {
+  return apiPatch<Report>(`/api/reports/${id}`, { action: "reject" });
 }
-export function deletePolicy(id: number): Promise<void> {
-  return apiDelete(`/api/policies/${id}`);
+export function retryReport(id: number): Promise<Report> {
+  return apiPatch<Report>(`/api/reports/${id}`, { action: "retry" });
+}
+
+export function getDemandForecasts(facilityId: number): Promise<DemandForecast[]> {
+  return apiGet<DemandForecast[]>(`/api/demand-forecasts?facility_id=${facilityId}`);
 }
 
 // Asks AiGIS to raise the purchase orders it thinks are needed. With dryRun
 // it returns the plan without saving anything.
 export function runAutomatedPurchaseOrders(dryRun = false): Promise<AutomatedOrdersResult> {
   return apiPost<AutomatedOrdersResult>("/api/purchase-orders/automated", { dry_run: dryRun });
+}
+
+// Whether each item is well stocked or running low, from its prediction.
+export function getStockStatus(): Promise<ItemStockStatus[]> {
+  return apiGet<ItemStockStatus[]>("/api/stock-status?pageSize=100");
+}
+
+// Weekly prediction accuracy for every item, most accurate first.
+export function getForecastAccuracy(): Promise<ItemAccuracy[]> {
+  return apiGet<ItemAccuracy[]>("/api/forecast-accuracy?pageSize=100");
 }

@@ -50,6 +50,7 @@ export function PreviousRunsCard({
   selectedRunId,
   onSelect,
   onSyncNow,
+  syncing = false,
   nextSyncClock,
   scoreLabel,
   getScore,
@@ -58,6 +59,7 @@ export function PreviousRunsCard({
   selectedRunId: string;
   onSelect: (id: string) => void;
   onSyncNow: () => void;
+  syncing?: boolean;
   nextSyncClock: string;
   scoreLabel: string;
   getScore: (run: PredictionRunSummary) => number;
@@ -77,6 +79,7 @@ export function PreviousRunsCard({
         </div>
         <Button
           variant="primary"
+          disabled={syncing}
           onClick={() => {
             setRequestedPage(0);
             onSyncNow();

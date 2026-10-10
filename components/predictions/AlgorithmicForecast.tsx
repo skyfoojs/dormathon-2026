@@ -6,6 +6,7 @@ import { DataTable } from "@/components/ui/DataTable";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Label, Select } from "@/components/ui/Input";
 import { Segmented } from "@/components/ui/Segmented";
+import { StepList } from "@/components/ui/StepList";
 import { ProvenanceTag, Tag, type TagTone } from "@/components/ui/Tag";
 import { AlgorithmicForecastChart } from "@/components/predictions/AlgorithmicForecastChart";
 import { StatTile } from "@/components/predictions/StatTile";
@@ -179,19 +180,7 @@ export function AlgorithmicForecast({
           <p className="text-sm text-strong-muted">
             Two methods, then their average. Both use only the weekly issue rows in your database.
           </p>
-          <ol className="flex flex-col divide-y divide-line border-t border-line">
-            {steps.map((step, i) => (
-              <li key={step.title} className="flex items-start gap-3 py-2.5">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-blue-border bg-blue-tint font-mono text-xs text-navy">
-                  {i + 1}
-                </span>
-                <div>
-                  <p className="text-sm font-semibold">{step.title}</p>
-                  <p className="text-sm text-strong-muted">{step.text}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+          <StepList steps={steps} />
         </div>
       </div>
 
