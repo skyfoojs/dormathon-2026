@@ -14,6 +14,7 @@ import type {
 import type { ItemAccuracy } from "@/lib/forecast/accuracy";
 import type { RestockTrigger, StockPoint } from "@/lib/forecast/runout";
 import type { AutomatedOrdersResult } from "@/lib/orders/automatedPurchaseOrders";
+import type { ItemStockStatus } from "@/lib/orders/restockPlan";
 
 export function getFacilities(): Promise<Facility[]> {
   return apiGet<Facility[]>("/api/facilities");
@@ -189,6 +190,11 @@ export function getDemandForecasts(facilityId: number): Promise<DemandForecast[]
 // it returns the plan without saving anything.
 export function runAutomatedPurchaseOrders(dryRun = false): Promise<AutomatedOrdersResult> {
   return apiPost<AutomatedOrdersResult>("/api/purchase-orders/automated", { dry_run: dryRun });
+}
+
+// Whether each item is well stocked or running low, from its prediction.
+export function getStockStatus(): Promise<ItemStockStatus[]> {
+  return apiGet<ItemStockStatus[]>("/api/stock-status?pageSize=100");
 }
 
 // Weekly prediction accuracy for every item, most accurate first.
