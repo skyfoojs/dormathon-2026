@@ -23,7 +23,7 @@ This document describes the code as it stands on `main` (October 2026). It was c
 AiGIS is a hospital inventory tool for a single facility.
 
 1. **Stock is recorded daily.** Each item has one row per day: quantity issued, unmet demand, and closing stock.
-2. **An arithmetic forecast runs** over that history. It predicts daily usage per item, a safety stock, a reorder point, and the dates stock will reach the reorder point and run out.
+2. **An arithmetic forecast runs** over that history, with the day-of-week pattern taken out first. It predicts usage on an average day per item, a safety stock, a reorder point, and the dates stock will reach the reorder point and run out.
 3. **News is read.** WHO Disease Outbreak News is fetched and an LLM screens each article for relevance to medical supply or demand.
 4. **An AI council validates the news:** is it credible, how severe is it, and which item categories does it touch.
 5. **A second AI council adjusts the forecast.** It returns only a multiplier on the arithmetic usage curve (1.3 means 30% more) and how long the effect lasts. Code turns that into quantities and dates.
@@ -76,10 +76,15 @@ Math: `lib/forecast/demand.ts`. Orchestration: `lib/forecast/run.ts`. Stock proj
 | `DEFAULT_ALPHA` | 0.4 | Holt level smoothing when not tuned |
 | `DEFAULT_BETA` | 0.05 | Holt trend smoothing when not tuned |
 | `TREND_DAMPING` (φ) | 0.95 | Trend damping factor |
-| `WMA_DAYS` | 28 | Moving average window |
+| `TUNING_ALPHAS` | 0.02, 0.05, 0.1 to 0.9 | α values tried when tuning |
+| `TUNING_BETAS` | 0.01 to 0.10 | β values tried when tuning |
+| `WMA_DAYS` | 56 | Moving average window |
+| `SCORING_HORIZON_DAYS` | 7 | Methods are tuned and weighted on the total of the next 7 days |
+| `WEEKDAY_FACTOR_DAYS` | 182 | History used for the day-of-week factors |
+| `WEEKDAY_FACTOR_SHRINK` | 4 | Extra average days each weekday factor is pulled towards 1 by |
 | `MIN_DAYS_FOR_METHODS` | 28 | History needed to use Holt and WMA |
 | `MIN_DAYS_FOR_TUNING` | 84 | History needed to tune α and β |
-| `MIN_ERRORS_FOR_SCORING` | 56 | Scored days needed to weight the blend and use forecast errors for sigma |
+| `MIN_ERRORS_FOR_SCORING` | 56 | Scored forecasts needed to weight the blend and use forecast errors for sigma |
 | `MIN_WEIGHT`, `MAX_WEIGHT` | 0.25, 0.75 | Clamp on the Holt weight |
 | `MAX_INTERPOLATED_GAP_DAYS` | 14 | Longest gap filled by interpolation |
 | `Z_CRITICAL`, `Z_STANDARD` | 2.05, 1.65 | Service level factor (98%, 95%) |
@@ -91,33 +96,38 @@ Math: `lib/forecast/demand.ts`. Orchestration: `lib/forecast/run.ts`. Stock proj
 Implemented by `forecastItem`.
 
 1. **Demand series.** Demand per day = `issued_qty + unmet_demand_qty`, oldest first. A gap of up to 14 days is filled by linear interpolation. A longer gap discards everything before it.
-2. **Short history (under 28 days).** Usage per day = mean of demand. Sigma = sample standard deviation of demand. Steps 3 to 8 are skipped.
-3. **Method A: damped Holt linear trend.**
+2. **Short history (under 28 days).** Usage per day = mean of demand. Sigma = sample standard deviation of demand. Steps 3 to 9 are skipped.
+3. **Day-of-week adjustment.** Over the last 182 days, each weekday gets a factor: its usage relative to an average day.
+   - `factor = (weekdayTotal / overallDailyMean + 4) / (weekdayCount + 4)`. The 4 pulls a weekday seen only a few times towards 1.
+   - Each day's demand is divided by its weekday's factor. Both methods below run on this smoothed series, so a busy weekday at the end of the history does not inflate the forecast.
+   - The forecast is therefore usage on an average day: right over a week or more, and smoother than any single day.
+4. **Method A: damped Holt linear trend.**
    - `level = α·y + (1 − α)·(level + φ·trend)`
    - `trend = β·(level − prevLevel) + (1 − β)·φ·trend`
-   - One-day-ahead forecast = `max(level + φ·trend, 0)`
-   - With 84 or more days, α (0.1 to 0.9) and β (0.01 to 0.10) are chosen by grid search for the lowest one-day-ahead mean absolute error. Otherwise the defaults apply.
-4. **Method B: 28-day weighted moving average.** The newest day has weight 28 and the oldest weight 1.
-5. **Backtest.** From day 28 onward, each day is forecast by Holt, by WMA, and by a naive "same as yesterday". Each gets a mean absolute error (MAE).
-6. **Blend weight.** With 56 or more scored days, Holt weight `w = wmaMae / (holtMae + wmaMae)`, clamped to 0.25 to 0.75. Otherwise `w = 0.5`.
-7. **Usage on day h** (h = 1 is the day after the last recorded day):
+   - With 84 or more days, α and β are chosen by grid search for the lowest mean absolute error on rolling forecasts of the next 7 days' total. Otherwise the defaults apply.
+5. **Method B: 56-day weighted moving average.** The newest day has weight 56 and the oldest weight 1.
+6. **Backtest.** After every day from the 28th on, each method forecasts the total of the next 7 days. Holt, WMA and a naive "same as the previous 7 days" each get a mean absolute error (MAE) on those totals.
+7. **Blend weight.** With 56 or more scored forecasts, Holt weight `w = wmaMae / (holtMae + wmaMae)`, clamped to 0.25 to 0.75. Otherwise `w = 0.5`.
+8. **Usage on day h** (h = 1 is the day after the last recorded day):
    - `holtPart = max(level + trend · φ(1 − φ^h) / (1 − φ), 0)`
    - `usage(h) = max(w · holtPart + (1 − w) · WMA, 0)`
    - `usagePerDay` is `usage(1)`.
-8. **Sigma.** With 56 or more scored days, the sample standard deviation of the blended backtest errors. Otherwise the standard deviation of demand.
-9. **Lead time.** Mean days from `order_date` to `actual_receipt_date` over the item's delivered orders. If none, the supplier's `lead_time_days`. If none, 7.
-10. **Safety stock** = `z · sigma · √leadDays`, with z = 2.05 for critical items and 1.65 otherwise.
-11. **Reorder point** = sum of `usage(h)` over the lead time + safety stock.
-12. **Buy quantity** = sum of `usage(h)` over `cover_days` + safety stock.
+9. **Sigma.** With 56 or more scored forecasts, the sample standard deviation of the one-day-ahead errors: the blended average-day forecast minus each day's real usage. Real usage keeps its day-of-week pattern, so the safety stock still covers the busy weekdays. Otherwise the standard deviation of demand.
+10. **Lead time.** Mean days from `order_date` to `actual_receipt_date` over the item's delivered orders. If none, the supplier's `lead_time_days`. If none, 7.
+11. **Safety stock** = `z · sigma · √leadDays`, with z = 2.05 for critical items and 1.65 otherwise.
+12. **Reorder point** = sum of `usage(h)` over the lead time + safety stock.
+13. **Buy quantity** = sum of `usage(h)` over `cover_days` + safety stock.
 
 Fractional day counts are handled by adding the fraction of the next day's usage.
+
+The saved `holt_level`, `holt_trend` and `wma_qty` are for an average day. The saved `holtMae`, `wmaMae` and `naiveMae` are errors on 7-day totals.
 
 ### 3.4 Stock run-down projection
 
 Implemented by `projectStock`.
 
 - Starts from the last recorded closing stock.
-- Each day: `stock = max(0, stock + arrivals − usage(day))`.
+- Each day: `stock = max(0, stock + arrivals − usage(day))`. Usage is the average-day figure, so the line does not show weekday peaks and dips.
 - Arrivals are `In transit` orders on their `expected_receipt_date`. An order already past its expected date lands on the first projected day.
 - Runs up to 84 days, stopping early once stock is zero and no arrival is still due.
 - **Threshold** = the item's `reorder_level` if set, otherwise the reorder point.

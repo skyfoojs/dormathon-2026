@@ -3,6 +3,7 @@ import {
   Calculator,
   CalendarClock,
   CalendarDays,
+  CalendarRange,
   ClipboardCheck,
   Database,
   Filter,
@@ -32,7 +33,6 @@ export type FaqEntry = {
   summary: string;
   flow: FlowStage[];
   example: string;
-  notes: string[];
 };
 
 export const FAQ_ENTRIES: FaqEntry[] = [
@@ -41,28 +41,34 @@ export const FAQ_ENTRIES: FaqEntry[] = [
     icon: Sigma,
     question: "How are predictions made from internal inventory and purchase order data?",
     summary:
-      "Two forecasting methods run on your own stock records, Holt's damped trend and a weighted moving average, and are blended. No AI, and the same data always gives the same answer.",
+      "Two forecasting methods run on your own stock records with the day-of-week pattern taken out, Holt's damped trend and a weighted moving average, and are blended. No AI, and the same data always gives the same answer.",
     flow: [
       { tone: "data", icon: Database, title: "Daily stock records", text: "Demand = issued + unmet demand." },
+      {
+        tone: "calc",
+        icon: CalendarRange,
+        title: "Day-of-week adjustment",
+        text: "Each weekday's usual high or low is divided out.",
+      },
       [
         {
           tone: "calc",
           icon: TrendingUp,
           title: "Holt's damped trend",
-          text: "Double exponential smoothing, tuned by grid search.",
+          text: "Double exponential smoothing, tuned on 7-day totals.",
         },
         {
           tone: "calc",
           icon: CalendarDays,
           title: "Weighted moving average",
-          text: "Last 28 days, newest weighted most.",
+          text: "Last 56 days, newest weighted most.",
         },
       ],
       {
         tone: "calc",
         icon: Scale,
         title: "Error-weighted blend",
-        text: "Backtested; lower mean absolute error gets more weight.",
+        text: "Backtested on 7-day totals; lower error gets more weight.",
       },
       [
         { tone: "data", icon: Truck, title: "Lead time", text: "Mean days from order to delivery." },
@@ -78,11 +84,6 @@ export const FAQ_ENTRIES: FaqEntry[] = [
       { tone: "result", icon: CalendarClock, title: "Two dates", text: "When to reorder and when stock runs out." },
     ],
     example: "40 units a day and a 5-day lead time need 200. Add safety stock of 60 and the reorder point is 260.",
-    notes: [
-      "Looks up to 12 weeks ahead.",
-      "Under 28 days of history, a simple average is used.",
-      "98% service level for critical items, 95% for the rest.",
-    ],
   },
   {
     id: "ai-adjustment",
@@ -109,11 +110,6 @@ export const FAQ_ENTRIES: FaqEntry[] = [
       { tone: "result", icon: Sparkles, title: "AI line", text: "Shown beside the original prediction." },
     ],
     example: "A nearby outbreak: 30% more masks, fading over 30 days. About 15% more in two weeks, normal after a month.",
-    notes: [
-      "No new news: the last adjustment keeps fading and no AI is called.",
-      "Articles are information only. They cannot instruct the AI.",
-      "Each run has a spending cap.",
-    ],
   },
   {
     id: "purchase-orders",
@@ -142,9 +138,5 @@ export const FAQ_ENTRIES: FaqEntry[] = [
       { tone: "result", icon: ClipboardCheck, title: "Saved as Pending", text: "Staff review it on the Orders page." },
     ],
     example: "1,200 needed for 30 days including the buffer, 350 on hand. AiGIS drafts an order for 850.",
-    notes: [
-      "The dashboard's Items well stocked count uses the same rule.",
-      "Orders in transit count as incoming stock.",
-    ],
   },
 ];

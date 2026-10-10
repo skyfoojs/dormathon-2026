@@ -1,4 +1,4 @@
-import { ChevronRight, type LucideIcon } from "lucide-react";
+import { ChevronDown, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { TONE_CLASSES, type TagTone } from "@/components/ui/Tag";
 
@@ -37,14 +37,14 @@ function FlowNodeCard({ node }: { node: FlowNode }) {
   const Icon = node.icon;
   const tone = TONES[node.tone];
   return (
-    <div className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-md border border-line bg-card p-3 text-center">
+    <div className="flex min-h-28 w-full max-w-64 flex-col items-center justify-center gap-1 rounded-md border border-line bg-card p-2 text-center">
       <span
         className={cn(
-          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border",
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border",
           TONE_CLASSES[tone.tag],
         )}
       >
-        <Icon className="h-5 w-5" aria-hidden="true" />
+        <Icon className="h-4 w-4" aria-hidden="true" />
       </span>
       <p className="text-sm font-semibold">
         <span className="sr-only">{tone.label}: </span>
@@ -56,29 +56,23 @@ function FlowNodeCard({ node }: { node: FlowNode }) {
   );
 }
 
-// A flow read left to right, wrapping onto new rows. On a narrow screen it
-// runs top to bottom.
+// A flow read top to bottom. Nodes that happen side by side share a row,
+// and stack on a narrow screen.
 export function FlowChart({ stages, className }: { stages: FlowStage[]; className?: string }) {
   return (
-    <ol className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4", className)}>
+    <ol className={cn("flex flex-col items-center gap-2", className)}>
       {stages.map((stage, i) => {
         const nodes = toNodes(stage);
-        const isLast = i === stages.length - 1;
         return (
-          <li key={nodes[0].title} className="flex flex-col items-center gap-2 sm:flex-row">
-            <div className="flex w-full min-w-0 flex-1 flex-col gap-2">
+          <li key={nodes[0].title} className="flex w-full flex-col items-center gap-2">
+            <div className="flex w-full flex-col items-center justify-center gap-2 sm:flex-row sm:items-stretch">
               {nodes.map((node) => (
                 <FlowNodeCard key={node.title} node={node} />
               ))}
             </div>
-            {/* The last stage keeps the arrow's space so every box is the same width. */}
-            <ChevronRight
-              className={cn(
-                "h-5 w-5 shrink-0 rotate-90 text-line-strong sm:rotate-0",
-                isLast && "hidden sm:block sm:invisible",
-              )}
-              aria-hidden="true"
-            />
+            {i < stages.length - 1 ? (
+              <ChevronDown className="h-5 w-5 shrink-0 text-line-strong" aria-hidden="true" />
+            ) : null}
           </li>
         );
       })}
