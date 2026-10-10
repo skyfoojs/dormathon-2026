@@ -484,8 +484,10 @@ function Flow({
     if (selectedId) focusedId.current = selectedId;
     const node = focusedId.current ? flow.getNode(focusedId.current) : undefined;
     if (!node || width === 0) return;
+    const ys = flow.getNodes().map((n) => n.position.y);
+    const middleY = (Math.min(...ys) + Math.max(...ys)) / 2;
     const frame = requestAnimationFrame(() =>
-      flow.setCenter(node.position.x, node.position.y, { zoom: flow.getZoom(), duration: 500 }),
+      flow.setCenter(node.position.x, middleY, { zoom: flow.getZoom(), duration: 500 }),
     );
     return () => cancelAnimationFrame(frame);
   }, [selectedId, width, flow]);
@@ -528,7 +530,7 @@ export function CouncilGraph({
   onSelect: (id: string) => void;
 }) {
   return (
-    <div className="h-128 w-full min-w-0 flex-1 overflow-hidden rounded-card border border-line bg-page">
+    <div className="h-160 w-full min-w-0 flex-1 overflow-hidden rounded-card border border-line bg-page">
       <ReactFlowProvider>
         <Flow council={council} selectedId={selectedId} onSelect={onSelect} />
       </ReactFlowProvider>

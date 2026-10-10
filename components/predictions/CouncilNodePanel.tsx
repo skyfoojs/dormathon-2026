@@ -428,7 +428,7 @@ export function CouncilNodePanel({
   return (
     <aside
       aria-label="Step details"
-      className="flex w-full flex-col gap-3 motion-safe:animate-slide-in lg:max-h-128 lg:w-96 lg:shrink-0 lg:overflow-y-auto"
+      className="flex w-full flex-col gap-3 motion-safe:animate-slide-in lg:max-h-160 lg:w-2/5 lg:shrink-0 lg:overflow-y-auto"
     >
       <div className="flex justify-end">
         <IconButton aria-label="Close step details" onClick={onClose}>
