@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ErrorBanner, InfoBanner } from "@/components/ui/Banner";
 import { ProvenanceTag, Tag } from "@/components/ui/Tag";
 import { StatTile } from "@/components/ui/StatTile";
+import { Eyebrow } from "@/components/ui/Eyebrow";
 import { CouncilGraph } from "@/components/predictions/CouncilGraph";
 import { CouncilNodePanel } from "@/components/predictions/CouncilNodePanel";
 import { ItemSelect } from "@/components/predictions/ItemSelect";
@@ -15,7 +16,7 @@ import { StockChart } from "@/components/predictions/StockChart";
 import { actualSeries, aiSeries, formatQty, thresholdLine, triggerMarker } from "@/components/predictions/forecastSeries";
 import * as api from "@/lib/api/resources";
 import type { AiForecastLine, ItemStockProjection, RunCouncil } from "@/lib/api/resources";
-import { formatDateTime } from "@/lib/data/dates";
+import { formatDateTime, formatShortDate } from "@/lib/data/dates";
 
 function CouncilCard({
   council,
@@ -61,7 +62,7 @@ function AiChart({ data, line }: { data: ItemStockProjection; line: AiForecastLi
       series={series}
       thresholds={[thresholdLine(data, line.threshold)]}
       markers={triggerMarker(line.projection, line.trigger, line.threshold, "var(--color-amber-border)")}
-      summary={`Stock for ${data.itemName} with the AI forecast at ×${line.usageMultiplier} of the algorithmic usage.`}
+      summary={`Stock for ${data.itemName} with the AI forecast.`}
     />
   );
 }
@@ -69,15 +70,12 @@ function AiChart({ data, line }: { data: ItemStockProjection; line: AiForecastLi
 function AiStats({ data, line }: { data: ItemStockProjection; line: AiForecastLine }) {
   const last = data.history[data.history.length - 1];
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <StatTile label="Last count" value={`${last.stock.toLocaleString()} ${data.unit}`} />
-      <StatTile label="AI usage, per day" value={line.usagePerDay.toFixed(1)} />
-      <StatTile label="Multiplier" value={`×${line.usageMultiplier}`} />
-      <StatTile label="Fades over" value={line.fadeDays === null ? "Lasts" : `${line.fadeDays} days`} />
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <StatTile label="Remaining amount" value={formatQty(last.stock, data.unit)} />
       <StatTile label="Confidence" value={line.confidence === null ? "—" : `${Math.round(line.confidence * 100)}%`} />
       <StatTile label="Restock trigger" value={Math.round(line.threshold).toLocaleString()} />
       <StatTile label="Buy amount" value={formatQty(line.buyQty, data.unit)} />
-      <StatTile label="Stock runs out" value={line.stockoutDate ?? "Not in 12 weeks"} />
+      <StatTile label="Stock runs out" value={line.stockoutDate ? formatShortDate(line.stockoutDate) : "Not in 12 weeks"} />
     </div>
   );
 }
@@ -125,16 +123,16 @@ function AiRunoutCard({
         <UpdatingFade updating={updating} className="flex flex-col gap-4">
           <RestockStatus lines={[{ name: "AI", trigger: line.trigger }]} unit={data.unit} />
           <AiChart data={data} line={line} />
-          <AiStats data={data} line={line} />
           {line.reasoning ? (
-            <p className="text-sm text-strong-muted">
-              <span className="font-medium">Chairman reasoning: </span>
-              {line.reasoning}
-            </p>
+            <div className="flex flex-col gap-1.5 rounded-md border border-line bg-page p-4">
+              <Eyebrow>Chairman reasoning</Eyebrow>
+              <p className="text-base leading-relaxed text-ink">{line.reasoning}</p>
+            </div>
           ) : null}
+          <AiStats data={data} line={line} />
           <p className="text-xs text-muted">
-            The AI forecast is the algorithmic usage scaled by the council&apos;s multiplier, fading back to ×1 over the
-            fade days. Orders in transit are added on their expected date.
+            The AI forecast is the algorithmic forecast adjusted by the AI council for recent news. Orders in transit
+            are added on their expected date.
           </p>
         </UpdatingFade>
       )}

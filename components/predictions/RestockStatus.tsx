@@ -1,5 +1,6 @@
 import { Tag, type TagTone } from "@/components/ui/Tag";
 import { formatShortDate } from "@/lib/data/dates";
+import { formatQuantity } from "@/lib/data/units";
 import type { RestockTrigger } from "@/lib/forecast/runout";
 
 type Status = { tone: TagTone; label: string; detail: string };
@@ -19,7 +20,7 @@ function getStatus(name: string, trigger: RestockTrigger | null, unit: string): 
   return {
     tone: "amber",
     label: `${name}: restock by ${formatShortDate(trigger.date)}`,
-    detail: `${days} day${days === 1 ? "" : "s"} after the last count, once about ${Math.round(trigger.demandUntilTrigger).toLocaleString()} ${unit} more are used.`,
+    detail: `${days} day${days === 1 ? "" : "s"} after the last count, once about ${formatQuantity(trigger.demandUntilTrigger, unit)} more are used.`,
   };
 }
 

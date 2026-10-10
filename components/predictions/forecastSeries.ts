@@ -1,6 +1,7 @@
 import type { ChartMarker, ChartSeries, ChartThreshold } from "@/components/predictions/StockChart";
 import type { ItemStockProjection } from "@/lib/api/resources";
 import type { RestockTrigger, StockPoint } from "@/lib/forecast/runout";
+import { formatQuantity } from "@/lib/data/units";
 
 const THRESHOLD_LABEL: Record<ItemStockProjection["thresholdSource"], string> = {
   reorder_level: "Reorder level (set)",
@@ -67,5 +68,5 @@ export function triggerMarker(
 }
 
 export function formatQty(value: number | null | undefined, unit: string): string {
-  return value === null || value === undefined ? "None" : `${Math.round(value).toLocaleString()} ${unit}`;
+  return value === null || value === undefined ? "None" : formatQuantity(value, unit);
 }
