@@ -329,7 +329,7 @@ for (let day = firstDay; day <= endDay; day += 7) {
   hazeRows.push({ facility_id: FACILITY_ID, week_start: isoDate(day), api_avg: hazeOn(day), api_category: hazeCategory(hazeOn(day)) });
 }
 
-const itemRows = ITEMS.map((item) => ({ ...item, cover_days: null, reorder_level: 0 }));
+const itemRows = ITEMS.map((item) => ({ ...item, cover_days: 30, reorder_level: 0 }));
 const supplierRows = SUPPLIERS.map((supplier) => ({ ...supplier, country: "Malaysia" }));
 
 const statements = [
@@ -340,6 +340,7 @@ const statements = [
   // suppliers.email is left as it is: it holds a real address.
   ...upsert("suppliers", "supplier_id", ["supplier_id", "supplier_name", "supplier_type", "state", "lead_time_days", "reliability_score", "country"], supplierRows),
   ...upsert("items", "item_id", ["item_id", "item_name", "category", "unit", "unit_cost_myr", "shelf_life_months", "is_critical", "storage", "primary_supplier_id", "cover_days", "reorder_level"], itemRows, {
+    cover_days: "COALESCE(items.cover_days, EXCLUDED.cover_days)",
     reorder_level: "COALESCE(items.reorder_level, EXCLUDED.reorder_level)",
   }),
   ...insert("haze_api_weekly", ["facility_id", "week_start", "api_avg", "api_category"], hazeRows),

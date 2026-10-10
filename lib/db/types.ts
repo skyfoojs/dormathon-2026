@@ -36,6 +36,7 @@ export type Item = {
   storage: string;
   primary_supplier_id: number;
   reorder_level: number | null;
+  cover_days: number | null;
 };
 
 export type HazeApiCategory =

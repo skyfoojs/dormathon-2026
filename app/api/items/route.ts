@@ -14,6 +14,7 @@ const createItemSchema = z.object({
   storage: z.string().trim().min(1),
   primary_supplier_id: z.coerce.number().int().min(1),
   reorder_level: z.coerce.number().min(0).default(0),
+  cover_days: z.coerce.number().int().min(1).default(30),
 });
 
 export async function GET(req: Request) {
@@ -43,7 +44,7 @@ async function listItems(pagination: { page: number; pageSize: number }) {
   const { data, count, error } = await db
     .from("items")
     .select(
-      "item_id, item_name, category, unit, unit_cost_myr, shelf_life_months, is_critical, storage, primary_supplier_id, reorder_level",
+      "item_id, item_name, category, unit, unit_cost_myr, shelf_life_months, is_critical, storage, primary_supplier_id, reorder_level, cover_days",
       { count: "exact" },
     )
     .order("item_name", { ascending: true })

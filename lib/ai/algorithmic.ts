@@ -81,7 +81,7 @@ export async function findLatestInventoryDate(): Promise<string | null> {
   return data ? inventoryDateRowSchema.parse(data).inventory_date : null;
 }
 
-export function toForecastBasis(row: ForecastRow): ForecastBasis {
+export function toForecastBasis(row: ForecastRow, coverDays?: number | null): ForecastBasis {
   return {
     phi: row.phi ?? TREND_DAMPING,
     holtLevel: row.holt_level,
@@ -91,6 +91,6 @@ export function toForecastBasis(row: ForecastRow): ForecastBasis {
     usagePerDay: row.usage_per_day,
     safetyStock: row.safety_stock ?? 0,
     leadDays: row.lead_days ?? 0,
-    coverDays: row.cover_days ?? DEFAULT_COVER_DAYS,
+    coverDays: coverDays ?? row.cover_days ?? DEFAULT_COVER_DAYS,
   };
 }

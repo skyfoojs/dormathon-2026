@@ -34,8 +34,7 @@ export type SavedPrediction = {
   forecastDate: string;
   basis: ForecastBasis;
   threshold: number | null;
-  buyQty: number | null;
-  ai: { adjustment: UsageAdjustment; threshold: number | null; buyQty: number | null } | null;
+  ai: { adjustment: UsageAdjustment; threshold: number | null } | null;
 };
 
 export type RestockInput = {
@@ -215,7 +214,7 @@ function readSavedPrediction(
       return {
         source: "ai",
         projection: aiForecast.projection,
-        buyQty: ai.buyQty ?? aiForecast.buyQty,
+        buyQty: aiForecast.buyQty,
         leadDays: basis.leadDays,
       };
     }
@@ -232,7 +231,7 @@ function readSavedPrediction(
   return {
     source: "algorithmic",
     projection,
-    buyQty: prediction.buyQty ?? sumUsage(usage, basis.coverDays) + basis.safetyStock,
+    buyQty: sumUsage(usage, basis.coverDays) + basis.safetyStock,
     leadDays: basis.leadDays,
   };
 }

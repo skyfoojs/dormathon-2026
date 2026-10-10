@@ -41,6 +41,7 @@ export function ItemForm({
       storage: item?.storage ?? "",
       primary_supplier_id: item?.primary_supplier_id ?? suppliers[0]?.supplier_id,
       reorder_level: item ? (item.reorder_level ?? undefined) : 0,
+      cover_days: item?.cover_days ?? 30,
     },
   });
 
@@ -104,6 +105,14 @@ export function ItemForm({
             error={errors.reorder_level?.message}
           >
             <Input id="reorder_level" type="number" min="0" placeholder="0" {...register("reorder_level")} />
+          </Field>
+          <Field
+            label="Cover days"
+            htmlFor="cover_days"
+            hint="How many days one order should last. The buy amount is that many days of predicted usage plus safety stock."
+            error={errors.cover_days?.message}
+          >
+            <Input id="cover_days" type="number" min="1" step="1" {...register("cover_days")} />
           </Field>
         </div>
 

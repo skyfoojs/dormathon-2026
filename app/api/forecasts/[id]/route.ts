@@ -108,7 +108,7 @@ function daysSinceForecast(history: { date: string }[], forecast: ForecastRow): 
 }
 
 function toAlgorithmicLine(forecast: ForecastRow, { item, inputs, dayOffset }: ItemData) {
-  const basis = toForecastBasis(forecast);
+  const basis = toForecastBasis(forecast, item.cover_days);
   const usage = (h: number) => usageOnDay(basis, h + dayOffset);
   const threshold = item.reorder_level ?? forecast.threshold ?? sumUsage(usage, basis.leadDays) + basis.safetyStock;
   const project = (lineUsage: UsageOnDay) =>
@@ -135,7 +135,7 @@ function toAlgorithmicLine(forecast: ForecastRow, { item, inputs, dayOffset }: I
     weeklyForecastQty: sumUsage(usage, 7),
     coverDays: basis.coverDays,
     safetyStock: basis.safetyStock,
-    buyQty: forecast.buy_qty,
+    buyQty: sumUsage(usage, basis.coverDays) + basis.safetyStock,
     projection: projection.projection,
     arrivals: projection.arrivals,
     threshold: projection.threshold,
@@ -145,7 +145,7 @@ function toAlgorithmicLine(forecast: ForecastRow, { item, inputs, dayOffset }: I
 }
 
 function toAiLine(forecast: ForecastRow, latestAi: LatestAiForecast, { item, inputs, dayOffset }: ItemData) {
-  const basis = toForecastBasis(forecast);
+  const basis = toForecastBasis(forecast, item.cover_days);
   const adjustment = toUsageAdjustment(latestAi, forecast.forecast_date);
   const aiForecast = buildAiForecast({
     basis,
@@ -169,7 +169,7 @@ function toAiLine(forecast: ForecastRow, latestAi: LatestAiForecast, { item, inp
     reasoning: latestAi.reasoning,
     usagePerDay: usage(1),
     weeklyForecastQty: sumUsage(usage, 7),
-    buyQty: latestAi.buyQty ?? aiForecast.buyQty,
+    buyQty: aiForecast.buyQty,
     projection: projection.projection,
     arrivals: projection.arrivals,
     threshold: projection.threshold,

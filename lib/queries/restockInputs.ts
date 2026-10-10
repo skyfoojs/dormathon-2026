@@ -13,17 +13,15 @@ export async function loadRestockInputs(): Promise<RestockInput> {
     findLatestAiForecasts(),
   ]);
 
+  const coverDaysByItem = new Map(inputs.items.map((item) => [item.item_id, item.cover_days]));
   const predictions = new Map<number, SavedPrediction>();
   for (const [itemId, forecast] of forecasts) {
     const ai = aiForecasts.get(itemId);
     predictions.set(itemId, {
       forecastDate: forecast.forecast_date,
-      basis: toForecastBasis(forecast),
+      basis: toForecastBasis(forecast, coverDaysByItem.get(itemId)),
       threshold: forecast.threshold,
-      buyQty: forecast.buy_qty,
-      ai: ai
-        ? { adjustment: toUsageAdjustment(ai, forecast.forecast_date), threshold: ai.threshold, buyQty: ai.buyQty }
-        : null,
+      ai: ai ? { adjustment: toUsageAdjustment(ai, forecast.forecast_date), threshold: ai.threshold } : null,
     });
   }
 

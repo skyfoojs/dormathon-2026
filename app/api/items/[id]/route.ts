@@ -16,6 +16,7 @@ const updateItemSchema = z.object({
   storage: z.string().trim().min(1),
   primary_supplier_id: z.coerce.number().int().min(1),
   reorder_level: z.coerce.number().min(0).optional(),
+  cover_days: z.coerce.number().int().min(1).optional(),
 });
 
 type Ctx = { params: Promise<{ id: string }> };
