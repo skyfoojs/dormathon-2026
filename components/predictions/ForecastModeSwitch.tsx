@@ -13,14 +13,6 @@ const MODES: {
   Icon: typeof Sparkles;
 }[] = [
   {
-    mode: "ai",
-    name: "AI Powered Forecast",
-    description: "Three AI models read your database and the outside signals, challenge each other, then vote.",
-    tag: "AI + outside signals",
-    tagTone: "blue",
-    Icon: Sparkles,
-  },
-  {
     mode: "algorithmic",
     name: "Algorithmic Forecast",
     description:
@@ -29,14 +21,24 @@ const MODES: {
     tagTone: "navy",
     Icon: Sigma,
   },
+  {
+    mode: "ai",
+    name: "AI Powered Forecast",
+    description: "Four AI personas read the news and your stock, peer review each other, then a chairman decides.",
+    tag: "AI + outside signals",
+    tagTone: "blue",
+    Icon: Sparkles,
+  },
 ];
 
 export function ForecastModeSwitch({
   mode,
   onChange,
+  disabled = [],
 }: {
   mode: ForecastMode;
   onChange: (mode: ForecastMode) => void;
+  disabled?: ForecastMode[];
 }) {
   return (
     <div role="group" aria-label="Prediction method" className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -47,11 +49,13 @@ export function ForecastModeSwitch({
             key={value}
             type="button"
             aria-pressed={selected}
+            disabled={disabled.includes(value)}
             onClick={() => onChange(value)}
             className={cn(
               "flex min-h-11 flex-col items-start gap-2 rounded-card border-2 p-4 text-left transition-colors duration-150",
               focusRingClasses,
               selected ? "border-navy bg-blue-tint" : "border-calc-border bg-card hover:bg-page",
+              "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-card",
             )}
           >
             <span className="flex w-full flex-wrap items-center justify-between gap-2.5">

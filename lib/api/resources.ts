@@ -14,6 +14,7 @@ import type {
 } from "@/lib/db/types";
 import type { RestockTrigger, StockPoint } from "@/lib/forecast/runout";
 import type { AutomatedOrdersResult } from "@/lib/orders/automatedPurchaseOrders";
+import type { SyncRun, SyncScope } from "@/lib/ai/sync";
 
 export function getFacilities(): Promise<Facility[]> {
   return apiGet<Facility[]>("/api/facilities");
@@ -147,6 +148,11 @@ type ForecastLine = {
 };
 
 export type AlgorithmicForecastLine = ForecastLine & {
+  holtPerDay: number | null;
+  wmaPerDay: number | null;
+  holtWeight: number | null;
+  holtProjection: StockPoint[] | null;
+  wmaProjection: StockPoint[] | null;
   forecastId: number;
   madeAt: string;
   coverDays: number;
@@ -173,8 +179,117 @@ export type ItemStockProjection = {
   ai: AiForecastLine | null;
 };
 
-export function getStockProjection(itemId: number): Promise<ItemStockProjection> {
-  return apiGet<ItemStockProjection>(`/api/forecasts/${itemId}`);
+export function getStockProjection(itemId: number, syncRunId?: number): Promise<ItemStockProjection> {
+  const query = syncRunId ? `?sync_run_id=${syncRunId}` : "";
+  return apiGet<ItemStockProjection>(`/api/forecasts/${itemId}${query}`);
+}
+
+export type { SyncRun, SyncScope };
+export type SyncRunFilter = { trigger?: "manual" | "auto" | "hourly" | "daily"; scope?: SyncScope };
+
+export function getSyncRuns(filter: SyncRunFilter): Promise<SyncRun[]> {
+  const params = new URLSearchParams({ pageSize: "100" });
+  if (filter.trigger) params.set("trigger", filter.trigger);
+  if (filter.scope) params.set("scope", filter.scope);
+  return apiGet<SyncRun[]>(`/api/sync-runs?${params}`);
+}
+
+export function startSyncRun(scope: SyncScope): Promise<SyncRun> {
+  return apiPost<SyncRun>("/api/sync-runs", { scope });
+}
+
+export type CouncilVerdict = {
+  article_id: number;
+  valid: boolean;
+  severity: number;
+  impact_type: string;
+  regions: string[];
+  affected_categories: string[];
+  reasoning: string;
+};
+
+export type CouncilItemForecast = {
+  item_id: number;
+  usage_multiplier: number;
+  fade_days: number | null;
+  confidence: number;
+  reasoning: string;
+};
+
+type CouncilTokens = { tokensIn: number; tokensOut: number };
+
+export type CouncilMember = CouncilTokens & {
+  seatId: number;
+  persona: string;
+  brief: string;
+  label: string;
+  error: string | null;
+  verdicts: CouncilVerdict[] | null;
+  forecasts: CouncilItemForecast[] | null;
+};
+
+export type CouncilReview = CouncilTokens & {
+  label: string;
+  persona: string;
+  error: string | null;
+  review: { critiques: { label: string; strengths: string; concerns: string }[]; ranking: string[] } | null;
+};
+
+export type CouncilChairman = CouncilTokens & {
+  brief: string;
+  error: string | null;
+  verdicts: CouncilVerdict[] | null;
+  forecasts: CouncilItemForecast[] | null;
+};
+
+export type CouncilCycle = {
+  cycle: 1 | 2;
+  members: CouncilMember[];
+  reviews: CouncilReview[];
+  chairman: CouncilChairman;
+  peerIndex: { label: string; persona: string; index: number | null; agreement: number | null }[];
+};
+
+export type ArticleRef = { id: number; title: string; source: string };
+
+export type RunCouncil = {
+  run: SyncRun;
+  shownRunId: number;
+  reused: boolean;
+  items: { id: number; name: string }[];
+  articles: ArticleRef[];
+  algorithmic: { forecastCount: number; stockAsOf: string | null; atOrBelowItemIds: number[] } | null;
+  news: {
+    sources: { name: string; tier: number; region: string | null; fetched: number }[];
+    articles: (ArticleRef & { url: string; publishedAt: string | null })[];
+  };
+  screener:
+    | (CouncilTokens & {
+        articles: (ArticleRef & {
+          selected: boolean;
+          summary: string | null;
+          rejectReason: string | null;
+          impactType: string | null;
+          regions: string[];
+          categories: string[];
+        })[];
+      })
+    | null;
+  cycles: CouncilCycle[];
+  aiForecast: {
+    itemId: number;
+    usageMultiplier: number | null;
+    fadeDays: number | null;
+    confidence: number | null;
+    triggered: boolean;
+    buyQty: number | null;
+    thresholdDate: string | null;
+    stockoutDate: string | null;
+  }[];
+};
+
+export function getRunCouncil(syncRunId: number): Promise<RunCouncil> {
+  return apiGet<RunCouncil>(`/api/sync-runs/${syncRunId}/council`);
 }
 
 export function getHaze(facilityId: number): Promise<HazeApiWeekly[]> {

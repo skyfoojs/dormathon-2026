@@ -114,6 +114,7 @@
   --animate-floaty: floaty 4.4s ease-in-out infinite;
   --animate-pop: pop 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
   --animate-orbit: orbit 2s linear infinite;
+  --animate-slide-in: slide-in 0.35s ease-out both;
 
   @keyframes floaty {
     0%,
@@ -135,6 +136,13 @@
   @keyframes orbit {
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  @keyframes slide-in {
+    from {
+      opacity: 0;
+      transform: translateX(24px);
     }
   }
 }

@@ -63,3 +63,11 @@ export function ErrorBanner({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+export function InfoBanner({ children }: { children: React.ReactNode }) {
+  return (
+    <p role="status" className="rounded-md border border-blue-border bg-blue-tint px-4 py-3 text-sm text-navy">
+      {children}
+    </p>
+  );
+}

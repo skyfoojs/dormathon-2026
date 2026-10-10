@@ -1,114 +1,92 @@
 "use client";
 
 import * as React from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
-import { DataTable } from "@/components/ui/DataTable";
-import { Eyebrow } from "@/components/ui/Eyebrow";
-import { Label, Select } from "@/components/ui/Input";
-import { Segmented } from "@/components/ui/Segmented";
-import { ProvenanceTag, Tag, type TagTone } from "@/components/ui/Tag";
-import { AlgorithmicForecastChart } from "@/components/predictions/AlgorithmicForecastChart";
+import { ErrorBanner } from "@/components/ui/Banner";
+import { ProvenanceTag, Tag } from "@/components/ui/Tag";
 import { StatTile } from "@/components/ui/StatTile";
-import { createTableColumnHelper } from "@/lib/table/features";
+import { ItemSelect } from "@/components/predictions/ItemSelect";
+import { RestockStatus } from "@/components/predictions/RestockStatus";
+import { StockChart } from "@/components/predictions/StockChart";
 import {
-  ALGO_ITEMS,
-  FORECAST_WEEKS,
-  HISTORY_WEEKS,
-  WMA_WINDOWS,
-  forecastAlgoItem,
-  wmaWeeks,
-  type AlgoTier,
-  type AlgoTierRow,
-  type WmaWindowDays,
-} from "@/lib/mock/algorithmicForecast";
-import type { PredictionRunSummary } from "@/lib/mock/predictionRuns";
+  actualSeries,
+  averageSeries,
+  holtSeries,
+  thresholdLine,
+  triggerMarker,
+  wmaSeries,
+} from "@/components/predictions/forecastSeries";
+import * as api from "@/lib/api/resources";
+import type { AlgorithmicForecastLine, ItemStockProjection } from "@/lib/api/resources";
+import { formatDateTime } from "@/lib/data/dates";
 
-const TIER_TONE: Record<AlgoTier, TagTone> = { High: "red", Medium: "amber", Low: "grey" };
-
-const WINDOW_OPTIONS = WMA_WINDOWS.map((w) => ({ value: w.days, label: `${w.days} days` }));
-
-const helper = createTableColumnHelper<AlgoTierRow>();
-
-const TIER_COLUMNS = [
-  helper.accessor((r) => r.itemName, {
-    id: "item",
-    header: "Item",
-    cell: ({ row }) => <span className="font-semibold">{row.original.itemName}</span>,
-  }),
-  helper.accessor((r) => r.onHand, {
-    id: "onHand",
-    header: "On hand",
-    cell: ({ row }) => <span className="font-mono">{row.original.onHand.toLocaleString()}</span>,
-  }),
-  helper.accessor((r) => r.weekly, {
-    id: "weekly",
-    header: "Forecast per week",
-    cell: ({ row }) => <span className="font-mono">{row.original.weekly.toLocaleString()}</span>,
-  }),
-  helper.accessor((r) => r.coverWeeks, {
-    id: "cover",
-    header: "Cover",
-    cell: ({ row }) => <span className="font-mono font-medium">{row.original.coverWeeks.toFixed(1)} wk</span>,
-  }),
-  helper.accessor((r) => r.openOrder, { id: "order", header: "Open order" }),
-  helper.display({
-    id: "tier",
-    header: "Tier",
-    cell: ({ row }) => <Tag tone={TIER_TONE[row.original.tier]}>{row.original.tier}</Tag>,
-  }),
-  helper.accessor((r) => r.nextMonth, {
-    id: "nextMonth",
-    header: "Next month",
-    cell: ({ row }) => <span className="font-mono font-semibold">{row.original.nextMonth.toLocaleString()}</span>,
-  }),
-  helper.display({
-    id: "runsOut",
-    header: "Runs out about",
-    cell: ({ row }) => <span className="font-mono">{row.original.runsOutLabel}</span>,
-  }),
+const STEPS = [
+  { title: "Read the daily usage", text: "Units issued plus unmet demand per day, from the daily stock counts." },
+  { title: "Holt linear trend", text: "Smooths the daily level and trend, then extends the trend with damping so it fades." },
+  { title: "Weighted moving average", text: "Averages the last 28 days, newest days counting most. Flat going forward." },
+  {
+    title: "Weighted average of the two",
+    text: "The method that was more accurate on past days gets more weight (25% to 75%). This is the planning forecast.",
+  },
+  {
+    title: "Run the stock down",
+    text: "Each line takes today's stock down by its daily usage, adds orders in transit, and marks when it hits the restock trigger.",
+  },
 ];
 
-const LEGEND_ITEMS = [
-  { label: "Actual weekly issue", swatch: "border-t-2 border-line-strong" },
-  { label: "Holt linear trend", swatch: "border-t-2 border-red" },
-  { label: "Weighted moving average", swatch: "border-t-2 border-blue-light" },
-  { label: "Average of the two", swatch: "border-t-2 border-dotted border-ink" },
-];
+function perDay(value: number | null): string {
+  return value === null ? "—" : value.toFixed(1);
+}
 
-function round(value: number): string {
-  return Math.round(value).toLocaleString();
+function methodGap(line: AlgorithmicForecastLine): string {
+  if (line.holtPerDay === null || line.wmaPerDay === null || line.usagePerDay === 0) return "—";
+  return `${Math.round((Math.abs(line.holtPerDay - line.wmaPerDay) / line.usagePerDay) * 100)}%`;
+}
+
+function AlgorithmicChart({ data, line }: { data: ItemStockProjection; line: AlgorithmicForecastLine }) {
+  const series = [
+    actualSeries(data),
+    ...(line.holtProjection ? [holtSeries(line.holtProjection)] : []),
+    ...(line.wmaProjection ? [wmaSeries(line.wmaProjection)] : []),
+    averageSeries(line.projection),
+  ];
+  const summary = `Stock for ${data.itemName} with Holt, moving average and weighted average forecasts. ${
+    line.stockoutDate ? `The weighted average runs out on ${line.stockoutDate}.` : "It does not run out in the next 12 weeks."
+  }`;
+  return (
+    <StockChart
+      series={series}
+      thresholds={[thresholdLine(data, line.threshold)]}
+      markers={triggerMarker(line.projection, line.trigger, line.threshold, "var(--color-violet-text)")}
+      summary={summary}
+    />
+  );
 }
 
 export function AlgorithmicForecast({
-  run,
-  windowDays,
-  onWindowChange,
-  tierRows,
+  runId,
+  items,
 }: {
-  run: PredictionRunSummary;
-  windowDays: WmaWindowDays;
-  onWindowChange: (days: WmaWindowDays) => void;
-  tierRows: AlgoTierRow[];
+  runId: number | null;
+  items: { id: number; name: string }[];
 }) {
-  const [itemIndex, setItemIndex] = React.useState(0);
-  const forecast = React.useMemo(() => forecastAlgoItem(itemIndex, windowDays), [itemIndex, windowDays]);
-
-  const steps = [
-    { title: "Read the weekly issue rows", text: `The last ${HISTORY_WEEKS} weeks of units issued, about ${HISTORY_WEEKS * 7} days.` },
-    { title: "Holt linear trend", text: `Smooths the level and the weekly trend, then extends the trend ${FORECAST_WEEKS} weeks.` },
-    { title: "Weighted moving average", text: `Averages the last ${wmaWeeks(windowDays)} weeks (${windowDays} days), newest weeks counting most.` },
-    { title: "Average the two", text: "The dotted line is the planning forecast. A gap between the methods is a warning in itself." },
-    { title: "Assign a tier", text: "By weeks of cover on the planning forecast, raised one level if an open order is late." },
-  ];
+  const [selectedId, setSelectedId] = React.useState<number | null>(null);
+  const itemId = selectedId ?? items[0]?.id ?? null;
+  const projectionQuery = useQuery({
+    queryKey: ["stock-projection", itemId, runId],
+    queryFn: () => api.getStockProjection(itemId as number, runId ?? undefined),
+    enabled: itemId !== null,
+  });
+  const data = projectionQuery.data;
+  const line = data?.algorithmic ?? null;
 
   return (
     <Card as="section" className="flex min-w-0 flex-col gap-5 p-6">
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-        <div className="flex flex-wrap items-baseline gap-3">
-          <h2 className="text-xl font-semibold">
-            Algorithmic Forecast at <span className="font-mono">{run.ranAtClock}</span> {"·"} {run.trigger}
-          </h2>
-          <Tag tone={run.status === "OK" ? "blue" : "amber"}>{run.status}</Tag>
+        <div className="flex flex-col">
+          <h2 className="text-xl font-semibold">Algorithmic forecast</h2>
+          {line ? <span className="text-sm text-muted">Made {formatDateTime(line.madeAt)}</span> : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <ProvenanceTag kind="database" />
@@ -116,98 +94,54 @@ export function AlgorithmicForecast({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile label="Holt trend, per week" value={round(forecast.holtWeekly)} />
-        <StatTile label={`Moving avg, ${windowDays}d`} value={round(forecast.wmaWeekly)} />
-        <StatTile label="Planning forecast" value={round(forecast.planningWeekly)} />
-        <StatTile label="Methods differ by" value={`${Math.round(forecast.methodGap * 100)}%`} />
-      </div>
+      <ItemSelect id="algo-item" items={items} value={itemId} onChange={setSelectedId} />
 
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-start">
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-            <div className="flex w-full max-w-sm flex-col gap-1.5">
-              <Label htmlFor="algo-item">Item</Label>
-              <Select id="algo-item" value={itemIndex} onChange={(e) => setItemIndex(Number(e.target.value))}>
-                {ALGO_ITEMS.map((item, i) => (
-                  <option key={item.name} value={i}>
-                    {item.name}
-                  </option>
+      {projectionQuery.error ? (
+        <ErrorBanner>Could not load the forecast: {(projectionQuery.error as Error).message}</ErrorBanner>
+      ) : !data ? (
+        <p role="status" className="text-sm text-muted">
+          Loading forecast{"…"}
+        </p>
+      ) : !line ? (
+        <p className="text-sm text-muted">No algorithmic forecast for this item in this run.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatTile label="Holt trend, per day" value={perDay(line.holtPerDay)} />
+            <StatTile label="Moving avg 28d, per day" value={perDay(line.wmaPerDay)} />
+            <StatTile label="Planning forecast, per day" value={perDay(line.usagePerDay)} />
+            <StatTile label="Methods differ by" value={methodGap(line)} />
+          </div>
+
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-start">
+            <div className="flex min-w-0 flex-1 flex-col gap-3">
+              <RestockStatus lines={[{ name: "Algorithmic", trigger: line.trigger }]} unit={data.unit} />
+              <AlgorithmicChart data={data} line={line} />
+            </div>
+
+            <div className="flex w-full flex-col gap-2 xl:w-80 xl:shrink-0">
+              <h3 className="text-base font-semibold">How this forecast is made</h3>
+              <p className="text-sm text-strong-muted">
+                Two methods, then a weighted average. Both use only the daily stock counts in your database.
+                {line.holtWeight !== null ? ` Holt gets ${Math.round(line.holtWeight * 100)}% of the weight for this item.` : ""}
+              </p>
+              <ol className="flex flex-col divide-y divide-line border-t border-line">
+                {STEPS.map((step, i) => (
+                  <li key={step.title} className="flex items-start gap-3 py-2.5">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-blue-border bg-blue-tint font-mono text-xs text-navy">
+                      {i + 1}
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold">{step.title}</p>
+                      <p className="text-sm text-strong-muted">{step.text}</p>
+                    </div>
+                  </li>
                 ))}
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Eyebrow id="wma-window-label">Moving average window</Eyebrow>
-              <Segmented
-                labelledBy="wma-window-label"
-                options={WINDOW_OPTIONS}
-                value={windowDays}
-                onChange={onWindowChange}
-              />
+              </ol>
             </div>
           </div>
-
-          <h3 className="text-base font-semibold">
-            {forecast.itemName}: weekly demand and {FORECAST_WEEKS}-week forecast
-          </h3>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-strong-muted">
-            {LEGEND_ITEMS.map((l) => (
-              <span key={l.label} className="flex items-center gap-1.5">
-                <span className={`inline-block w-5 ${l.swatch}`} aria-hidden="true" />
-                {l.label}
-              </span>
-            ))}
-          </div>
-
-          <AlgorithmicForecastChart forecast={forecast} windowDays={windowDays} />
-
-          <p className="text-xs text-muted">
-            Holt settings chosen to minimise one-step error: level weight {forecast.alpha.toFixed(1)}, trend weight{" "}
-            {forecast.beta.toFixed(1)}, trend {forecast.trend >= 0 ? "+" : ""}
-            {forecast.trend.toFixed(1)} units a week. The moving average gives the newest weeks the most weight and is
-            flat going forward. The extract ends 13 Jul 2026.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <ProvenanceTag kind={forecast.usesSampleRows ? "database" : "synthetic-data"} />
-            <ProvenanceTag kind="model-output" />
-            <Tag tone="grey">No AI used</Tag>
-          </div>
-        </div>
-
-        <div className="flex w-full flex-col gap-2 xl:w-80 xl:shrink-0">
-          <h3 className="text-base font-semibold">How this forecast is made</h3>
-          <p className="text-sm text-strong-muted">
-            Two methods, then their average. Both use only the weekly issue rows in your database.
-          </p>
-          <ol className="flex flex-col divide-y divide-line border-t border-line">
-            {steps.map((step, i) => (
-              <li key={step.title} className="flex items-start gap-3 py-2.5">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-blue-border bg-blue-tint font-mono text-xs text-navy">
-                  {i + 1}
-                </span>
-                <div>
-                  <p className="text-sm font-semibold">{step.title}</p>
-                  <p className="text-sm text-strong-muted">{step.text}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </div>
-
-      <DataTable columns={TIER_COLUMNS} data={tierRows} getRowId={(r) => r.itemName} />
-
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-        <ProvenanceTag kind="database" />
-        <ProvenanceTag kind="model-output" />
-        <span>
-          Weekly forecast is the average of the Holt and weighted moving average forecasts over the next{" "}
-          {FORECAST_WEEKS} weeks. Cover is on hand divided by that forecast. Tier rule: under 1 week of cover is High,
-          under 2 weeks is Medium, otherwise Low, raised one level if an open order is late. Next month is 4.3 times
-          the weekly forecast. Only Salbutamol uses the real weekly rows. Other items use invented {HISTORY_WEEKS}-week
-          series.
-        </span>
-      </div>
+        </>
+      )}
     </Card>
   );
 }

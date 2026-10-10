@@ -1,115 +1,125 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { PreviousRunsCard } from "@/components/predictions/RunTiles";
-import { ForecastModeSwitch, type ForecastMode } from "@/components/predictions/ForecastModeSwitch";
-import { AlgorithmicForecast } from "@/components/predictions/AlgorithmicForecast";
-import { RunDetail } from "@/components/predictions/RunDetail";
-import { SourcesAndChanges } from "@/components/predictions/SourcesAndChanges";
-import { SuggestedStockTable } from "@/components/predictions/SuggestedStockTable";
-import { StockRunoutCard } from "@/components/predictions/StockRunoutCard";
-import { usePredictions } from "@/components/providers/PredictionsProvider";
-import * as api from "@/lib/api/resources";
-import { ALGO_CHANGES, ALGO_SOURCES, buildTierRows, type WmaWindowDays } from "@/lib/mock/algorithmicForecast";
-import { buildRunDetail } from "@/lib/mock/predictionDetail";
 import { ErrorBanner } from "@/components/ui/Banner";
+import { SyncRunsCard, isActive, type RunFilter } from "@/components/predictions/SyncRunsCard";
+import { ForecastModeSwitch, type ForecastMode } from "@/components/predictions/ForecastModeSwitch";
+import { OverallForecastCard } from "@/components/predictions/OverallForecastCard";
+import { AlgorithmicForecast } from "@/components/predictions/AlgorithmicForecast";
+import { AiForecast } from "@/components/predictions/AiForecast";
+import * as api from "@/lib/api/resources";
+import type { RunCouncil, SyncRunFilter, SyncScope } from "@/lib/api/resources";
+
+const POLL_MS = 3000;
 
 const SUBTITLE: Record<ForecastMode, string> = {
   ai: "When the models last read the outside world, what each one found, and what they suggest.",
   algorithmic: "Forecasts from your own stock history only. No AI and no outside signals.",
 };
 
+function toApiFilter(filter: RunFilter): SyncRunFilter {
+  if (filter.kind === "manual") return { trigger: "manual" };
+  if (filter.kind === "auto") return { trigger: filter.auto === "both" ? "auto" : filter.auto };
+  return {};
+}
+
+function disabledModes(council: RunCouncil | undefined): ForecastMode[] {
+  if (!council) return ["algorithmic", "ai"];
+  const hasForecasts = council.aiForecast.length > 0;
+  const hasCouncil = council.cycles.length > 0 || council.screener !== null || isActive(council.run);
+  return [...(hasForecasts ? [] : (["algorithmic"] as const)), ...(hasForecasts || hasCouncil ? [] : (["ai"] as const))];
+}
+
 export default function PredictionsView() {
-  const { runs, selectedRunId, selectRun, syncNow } = usePredictions();
-  const [mode, setMode] = React.useState<ForecastMode>("ai");
-  const [windowDays, setWindowDays] = React.useState<WmaWindowDays>(60);
-
-  // A sync also lets AiGIS raise any purchase orders the forecast calls for.
   const qc = useQueryClient();
-  const autoOrdersMutation = useMutation({
-    mutationFn: () => api.runAutomatedPurchaseOrders(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["purchase-orders"] }),
+  const [filter, setFilter] = React.useState<RunFilter>({ kind: "both", auto: "both" });
+  const [selectedRunId, setSelectedRunId] = React.useState<number | null>(null);
+  const [requestedMode, setRequestedMode] = React.useState<ForecastMode>("ai");
+  const [aiItemId, setAiItemId] = React.useState<number | null>(null);
+  const apiFilter = toApiFilter(filter);
+
+  const runsQuery = useQuery({
+    queryKey: ["sync-runs", apiFilter],
+    queryFn: () => api.getSyncRuns(apiFilter),
+    refetchInterval: (query) => (query.state.data?.some(isActive) ? POLL_MS : false),
   });
-  const autoOrders = autoOrdersMutation.data;
-  const autoOrderLines = autoOrders ? autoOrders.orders.reduce((sum, o) => sum + o.lines.length, 0) : 0;
+  const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
+  const runs = runsQuery.data ?? [];
+  const runId = runs.some((r) => r.sync_run_id === selectedRunId) ? selectedRunId : (runs[0]?.sync_run_id ?? null);
 
-  function handleSyncNow() {
-    syncNow();
-    autoOrdersMutation.mutate();
-  }
+  const councilQuery = useQuery({
+    queryKey: ["run-council", runId],
+    queryFn: () => api.getRunCouncil(runId as number),
+    enabled: runId !== null,
+    refetchInterval: (query) => (query.state.data && isActive(query.state.data.run) ? POLL_MS : false),
+  });
+  const council = councilQuery.data;
+  const runStatus = council?.run.status;
 
-  const selectedRun = runs.find((r) => r.id === selectedRunId) ?? runs[0];
-  const detail = React.useMemo(() => buildRunDetail(selectedRun), [selectedRun]);
-  const tierRows = React.useMemo(() => buildTierRows(windowDays), [windowDays]);
-  const highTierCount = tierRows.filter((r) => r.tier === "High").length;
-  const isAi = mode === "ai";
+  const previousStatus = React.useRef(runStatus);
+  React.useEffect(() => {
+    const wasActive = previousStatus.current === "running" || previousStatus.current === "queued";
+    previousStatus.current = runStatus;
+    if (wasActive && (runStatus === "succeeded" || runStatus === "failed")) {
+      qc.invalidateQueries({ queryKey: ["stock-projection"] });
+      qc.invalidateQueries({ queryKey: ["sync-runs"] });
+    }
+  }, [qc, runStatus]);
+
+  const syncMutation = useMutation({
+    mutationFn: (scope: SyncScope) => api.startSyncRun(scope),
+    onSuccess: (run) => {
+      setSelectedRunId(run.sync_run_id);
+      return qc.invalidateQueries({ queryKey: ["sync-runs"] });
+    },
+  });
+
+  const items = [...(itemsQuery.data ?? [])]
+    .sort((a, b) => a.item_name.localeCompare(b.item_name))
+    .map((i) => ({ id: i.item_id, name: i.item_name }));
+  const disabled = disabledModes(council);
+  const mode = disabled.includes(requestedMode)
+    ? ((["algorithmic", "ai"] as const).find((m) => !disabled.includes(m)) ?? requestedMode)
+    : requestedMode;
+  const activeRun = runs.find(isActive) ?? null;
+  const loadError = runsQuery.error || itemsQuery.error || councilQuery.error;
 
   return (
     <>
       <PageHeader title="Predictions" subtitle={SUBTITLE[mode]} />
 
-      <PreviousRunsCard
+      {loadError ? <ErrorBanner>Could not load predictions: {(loadError as Error).message}</ErrorBanner> : null}
+
+      <SyncRunsCard
         runs={runs}
-        selectedRunId={selectedRun.id}
-        onSelect={selectRun}
-        onSyncNow={handleSyncNow}
-        nextSyncClock="15:00"
-        scoreLabel={isAi ? "risk" : "high tier"}
-        getScore={(run) => (isAi ? run.riskScore : highTierCount)}
+        selectedRunId={runId}
+        onSelect={setSelectedRunId}
+        filter={filter}
+        onFilterChange={setFilter}
+        onSync={(scope) => syncMutation.mutate(scope)}
+        activeRun={activeRun}
+        syncError={syncMutation.error ? (syncMutation.error as Error).message : null}
       />
 
-      {autoOrdersMutation.isPending ? (
+      <OverallForecastCard runId={runId} items={items} />
+
+      <ForecastModeSwitch mode={mode} onChange={setRequestedMode} disabled={disabled} />
+
+      {runId !== null && !council && !councilQuery.error ? (
         <p role="status" className="text-sm text-muted">
-          Checking whether any purchase orders are needed{"…"}
+          Loading run{"…"}
         </p>
-      ) : autoOrdersMutation.error ? (
-        <ErrorBanner>
-          AiGIS could not raise purchase orders. {(autoOrdersMutation.error as Error).message}
-        </ErrorBanner>
-      ) : autoOrders ? (
-        <div
-          role="status"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-green-border bg-green-tint px-4 py-3 text-sm text-green-text"
-        >
-          <span>
-            {autoOrders.createdPoIds.length > 0
-              ? `AiGIS raised ${autoOrders.createdPoIds.length} purchase order${autoOrders.createdPoIds.length === 1 ? "" : "s"} covering ${autoOrderLines} item${autoOrderLines === 1 ? "" : "s"}. They are pending supplier review.`
-              : "No new purchase orders are needed right now."}
-          </span>
-          {autoOrders.createdPoIds.length > 0 ? (
-            <Link href="/orders" className="font-semibold underline underline-offset-2">
-              View orders
-            </Link>
-          ) : null}
-        </div>
+      ) : disabled.length === 2 ? (
+        <p className="text-sm text-muted">
+          {council?.run.error ? `This run failed: ${council.run.error}` : "This run has no forecasts to show."}
+        </p>
+      ) : mode === "algorithmic" ? (
+        <AlgorithmicForecast runId={runId} items={items} />
+      ) : council ? (
+        <AiForecast council={council} items={items} itemId={aiItemId ?? items[0]?.id ?? null} onItemChange={setAiItemId} />
       ) : null}
-
-      <ForecastModeSwitch mode={mode} onChange={setMode} />
-
-      {isAi ? (
-        <>
-          <RunDetail key={selectedRun.id} run={selectedRun} detail={detail} />
-          <SuggestedStockTable rows={detail.suggestedStock} />
-        </>
-      ) : (
-        <>
-          <AlgorithmicForecast
-            run={selectedRun}
-            windowDays={windowDays}
-            onWindowChange={setWindowDays}
-            tierRows={tierRows}
-          />
-          <StockRunoutCard />
-        </>
-      )}
-
-      <SourcesAndChanges
-        sources={isAi ? detail.sources : ALGO_SOURCES}
-        changes={isAi ? detail.changes : ALGO_CHANGES}
-      />
     </>
   );
 }
