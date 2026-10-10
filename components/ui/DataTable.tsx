@@ -97,7 +97,7 @@ export function DataTable<T extends RowData>({
               visibleRows.map((row) => (
                 <tr key={row.id} className={cn("border-b border-line last:border-0 hover:bg-page")}>
                   {row.getAllCells().map((cell) => (
-                    <td key={cell.id} className="px-3 py-2.5 align-top">
+                    <td key={cell.id} className="px-3 py-2.5 align-middle">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}

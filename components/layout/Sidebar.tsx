@@ -5,8 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { NAV_ITEMS } from "@/lib/nav";
-import { Tag } from "@/components/ui/Tag";
+import { NAV_ITEMS, NAV_SECONDARY_ITEMS } from "@/lib/nav";
 
 export function Sidebar() {
   const [expanded, setExpanded] = React.useState(false);
@@ -66,41 +65,38 @@ export function Sidebar() {
           </button>
         </div>
 
-        <nav aria-label="Main" className="flex flex-col gap-1">
-          {NAV_ITEMS.map((item) => {
-            const isActive = pathname?.startsWith(item.href);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={isActive ? "page" : undefined}
-                aria-label={item.label}
-                onClick={() => setExpanded(false)}
-                className={cn(
-                  "relative flex min-h-11 items-center gap-3 rounded-md px-2.5 font-semibold text-ink no-underline transition-colors duration-150",
-                  expanded ? "justify-start" : "justify-center",
-                  isActive ? "bg-navy text-white" : "hover:bg-blue-tint",
-                )}
-              >
-                <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-                <span className={cn(!expanded && "sr-only")}>
-                  {item.label}
-                </span>
-              </Link>
-            );
-          })}
+        <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col justify-between gap-5 overflow-y-auto">
+          {[NAV_ITEMS, NAV_SECONDARY_ITEMS].map((group) => (
+            <div key={group[0].href} className="flex flex-col gap-1">
+              {group.map((item) => {
+                const isActive = pathname?.startsWith(item.href);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={isActive ? "page" : undefined}
+                    aria-label={item.label}
+                    onClick={() => setExpanded(false)}
+                    className={cn(
+                      "relative flex min-h-11 items-center gap-3 rounded-md px-2.5 font-semibold text-ink no-underline transition-colors duration-150",
+                      expanded ? "justify-start" : "justify-center",
+                      isActive ? "bg-navy text-white" : "hover:bg-blue-tint",
+                    )}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    <span className={cn(!expanded && "sr-only")}>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {expanded ? (
-          <div className="mt-auto flex flex-col gap-1.5 px-2 text-sm text-muted">
-            <Tag tone="dashed" className="self-start">
-              Mockup · sample data
-            </Tag>
-            <Link href="/predictions" className="font-semibold text-navy">
-              Last sync 34 min ago
-            </Link>
-          </div>
+          <Link href="/predictions" className="px-2 text-sm font-semibold text-navy">
+            Last sync 34 min ago
+          </Link>
         ) : null}
       </aside>
     </>

@@ -161,3 +161,10 @@ export type DemandForecast = {
   avg_qty: number | null;
   actual_qty: number | null;
 };
+
+// A free-text rule the facility wants followed. Read by a separate module.
+export type Policy = {
+  policy_id: number;
+  description: string;
+  created_at: string; // ISO timestamp, set by the database
+};

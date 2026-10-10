@@ -5,6 +5,7 @@ import type {
   Facility,
   HazeApiWeekly,
   Item,
+  Policy,
   PurchaseOrder,
   Report,
   ReportStatus,
@@ -154,4 +155,17 @@ export function retryReport(id: number): Promise<Report> {
 
 export function getDemandForecasts(facilityId: number): Promise<DemandForecast[]> {
   return apiGet<DemandForecast[]>(`/api/demand-forecasts?facility_id=${facilityId}`);
+}
+
+export function getPolicies(): Promise<Policy[]> {
+  return apiGet<Policy[]>("/api/policies?pageSize=100");
+}
+export function createPolicy(description: string): Promise<Policy> {
+  return apiPost<Policy>("/api/policies", { description });
+}
+export function updatePolicy(id: number, description: string): Promise<Policy> {
+  return apiPatch<Policy>(`/api/policies/${id}`, { description });
+}
+export function deletePolicy(id: number): Promise<void> {
+  return apiDelete(`/api/policies/${id}`);
 }
