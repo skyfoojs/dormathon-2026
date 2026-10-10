@@ -1,12 +1,16 @@
 // Stock run-down: projects an item's stock forward from its last recorded
-// level, falling by the forecast demand each day and rising when an order in
+// level, falling by each day's forecast usage and rising when an order in
 // transit arrives, and marks the day it reaches the restock trigger.
 
-import { addDays, dayNumber, type DailyStockRow, type SupplyOrderRow } from "@/lib/forecast/demand";
+import {
+  addDays,
+  dayNumber,
+  sumUsage,
+  type DailyStockRow,
+  type SupplyOrderRow,
+  type UsageOnDay,
+} from "@/lib/forecast/demand";
 
-// Restock is triggered when 30% of supply is left. "Supply" is the highest
-// daily closing stock in the last 12 weeks, i.e. the item's recent full level.
-export const RESTOCK_TRIGGER_SHARE = 0.3;
 const SUPPLY_LOOKBACK_DAYS = 84;
 // Fewer days are drawn than are used for the supply level, so the
 // projection is not squeezed into the edge of the chart.
@@ -36,21 +40,27 @@ export type StockProjection = {
   stockoutDate: string | null;
 };
 
+export function stockHistory(dailyRows: DailyStockRow[]): StockPoint[] {
+  return [...dailyRows]
+    .sort((a, b) => a.inventory_date.localeCompare(b.inventory_date))
+    .slice(-HISTORY_DAYS_SHOWN)
+    .map((r) => ({ date: r.inventory_date.slice(0, 10), stock: r.closing_stock }));
+}
+
 export function projectStock(input: {
   dailyRows: DailyStockRow[];
   purchaseOrders: SupplyOrderRow[];
-  weeklyForecastQty: number;
+  usage: UsageOnDay;
+  threshold: number;
 }): StockProjection | null {
   const rows = [...input.dailyRows].sort((a, b) => a.inventory_date.localeCompare(b.inventory_date));
   if (rows.length === 0) return null;
 
-  const history = rows
-    .slice(-HISTORY_DAYS_SHOWN)
-    .map((r) => ({ date: r.inventory_date.slice(0, 10), stock: r.closing_stock }));
+  const history = stockHistory(rows);
   const lastActual = history[history.length - 1];
   const supplyLevel = Math.max(...rows.slice(-SUPPLY_LOOKBACK_DAYS).map((r) => r.closing_stock));
-  const threshold = supplyLevel * RESTOCK_TRIGGER_SHARE;
-  const dailyDemand = input.weeklyForecastQty / 7;
+  const threshold = input.threshold;
+  const dailyDemand = input.usage(1);
 
   // An order already past its expected date has not arrived yet, so the
   // earliest it can land is the first projected day.
@@ -72,7 +82,7 @@ export function projectStock(input: {
   let stockoutDate: string | null = stock === 0 ? lastActual.date : null;
   for (let day = 1; day <= MAX_PROJECTION_DAYS; day++) {
     const date = addDays(lastActual.date, day);
-    stock = Math.max(0, stock + (arrivalQtyByDate.get(date) ?? 0) - dailyDemand);
+    stock = Math.max(0, stock + (arrivalQtyByDate.get(date) ?? 0) - input.usage(day));
     projection.push({ date, stock });
     if (triggerDate === null && stock <= threshold) triggerDate = date;
     if (stockoutDate === null && stock === 0) stockoutDate = date;
@@ -87,7 +97,7 @@ export function projectStock(input: {
     trigger = {
       date: triggerDate,
       daysFromLastActual: days,
-      demandUntilTrigger: dailyDemand * days,
+      demandUntilTrigger: sumUsage(input.usage, days),
       alreadyReached: days === 0,
     };
   }

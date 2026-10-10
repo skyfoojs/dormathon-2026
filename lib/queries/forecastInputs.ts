@@ -7,8 +7,9 @@ import type { Item, Supplier } from "@/lib/db/types";
 const PAGE_SIZE = 1000;
 
 export type ForecastSupplier = Pick<Supplier, "supplier_id" | "lead_time_days">;
+export type ForecastItem = Item & { cover_days: number | null; reorder_level: number | null };
 
-export async function findForecastItems(): Promise<Item[]> {
+export async function findForecastItems(): Promise<ForecastItem[]> {
   const { data, error } = await getDb().from("items").select("*").order("item_id");
   if (error) throw error;
   return data ?? [];
