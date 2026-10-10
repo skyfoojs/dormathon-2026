@@ -1,0 +1,40 @@
+/* Aegi, the AiGIS guardian avatar. Requires the markup in aegi-markup.html and aegi.js. */
+.ai-wrap{position:fixed;right:0;bottom:84px;z-index:150;width:190px;height:226px;pointer-events:none}
+.ai-girl{position:absolute;right:0;bottom:0;width:190px;height:226px;pointer-events:auto;transform:translateX(112%) rotate(10deg);transform-origin:100% 100%;transition:transform .9s cubic-bezier(.2,1.5,.35,1)}
+.ai-girl.ai-out{transform:none;animation:aijump .9s cubic-bezier(.3,0,.3,1) both}
+.ai-girl.ai-peek{transform:translateX(50%) rotate(-3deg);transition:transform .9s cubic-bezier(.5,0,.3,1)}
+@keyframes aijump{0%{transform:translateX(112%) rotate(10deg)}45%{transform:translateX(-10%) translateY(-26px) rotate(-5deg)}70%{transform:translateX(2%) translateY(4px) rotate(1deg)}100%{transform:none}}
+.ai-sway{transform-origin:50% 100%;animation:aisway 4.4s ease-in-out infinite}
+@keyframes aisway{0%,100%{transform:rotate(-1.6deg)}50%{transform:rotate(1.6deg)}}
+.ai-tailL,.ai-tailR{transform-box:fill-box;transform-origin:50% 0;animation:aitail 3.2s ease-in-out infinite}
+.ai-tailR{animation-delay:-1.4s}
+@keyframes aitail{0%,100%{transform:rotate(3deg)}50%{transform:rotate(-4deg)}}
+.ai-ahoge{transform-box:fill-box;transform-origin:50% 100%;animation:aiahoge 2.6s ease-in-out infinite}
+@keyframes aiahoge{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(8deg)}}
+.ai-eye{transform-box:fill-box;transform-origin:50% 40%;animation:aiblink 4.6s infinite}
+@keyframes aiblink{0%,93%,100%{transform:scaleY(1)}96%{transform:scaleY(.08)}}
+.ai-smile{opacity:1}
+.ai-mo{opacity:0;transform-box:fill-box;transform-origin:50% 30%}
+.ai-talk .ai-smile{opacity:0}
+.ai-talk .ai-mo{opacity:1;animation:aitalk .26s ease-in-out infinite alternate}
+@keyframes aitalk{from{transform:scaleY(.3)}to{transform:scaleY(1)}}
+.ai-hand{transform-box:fill-box;transform-origin:50% 100%;animation:aiwave 1.2s ease-in-out infinite}
+@keyframes aiwave{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(14deg)}}
+.ai-sparkle{transform-box:fill-box;transform-origin:50% 50%;animation:aispark 2.2s ease-in-out infinite}
+@keyframes aispark{0%,100%{transform:scale(.6);opacity:.4}50%{transform:scale(1.1);opacity:1}}
+.ai-handwrap{transition:opacity .4s}
+.ai-peek .ai-handwrap{opacity:0}
+.ai-msgs{position:fixed;right:176px;bottom:154px;z-index:150;width:420px;max-width:calc(100vw - 200px);display:flex;flex-direction:column;align-items:flex-end;gap:12px;pointer-events:none;transition:opacity .6s ease,transform .6s ease}
+.ai-msgs-off{opacity:0;transform:translateX(30px)}
+.ai-bub{position:relative;pointer-events:auto;background:#FFFFFF;border:1.5px solid #CFE0F0;border-radius:24px 24px 6px 24px;padding:16px 22px;font-size:18px;line-height:1.45;font-weight:500;color:#0A2540;box-shadow:0 8px 20px rgba(10,37,64,.14);transform-origin:100% 80%;animation:aithrow .75s cubic-bezier(.2,1,.3,1) both}
+@keyframes aithrow{0%{opacity:0;transform:translate(150px,50px) scale(.2) rotate(24deg)}40%{opacity:1}65%{transform:translate(-10px,-8px) scale(1.06) rotate(-3deg)}100%{transform:none}}
+.ai-dots{display:inline-flex;gap:5px;align-items:center;height:18px}
+.ai-dots i{width:9px;height:9px;border-radius:50%;background:#8FA3B8;animation:aidot 1s ease-in-out infinite}
+.ai-dots i:nth-child(2){animation-delay:.15s}
+.ai-dots i:nth-child(3){animation-delay:.3s}
+@keyframes aidot{0%,60%,100%{transform:translateY(0);opacity:.5}30%{transform:translateY(-5px);opacity:1}}
+@media (prefers-reduced-motion:reduce){.ai-sway,.ai-tailL,.ai-tailR,.ai-ahoge,.ai-eye,.ai-hand,.ai-sparkle,.ai-dots i,.ai-bub,.ai-girl.ai-out{animation:none!important}}
+.ai-cta{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:10px 22px;border-radius:6px;background:#0C4B87;color:#FFFFFF;font:600 16px/1 'Archivo',system-ui,sans-serif;text-decoration:none;border:2px solid #0C4B87;cursor:pointer}
+.ai-cta:hover{background:#0A3F73}
+.ai-cta:focus-visible{outline:3px solid #3DA5E0;outline-offset:2px}
+.ai-mono{font-family:'IBM Plex Mono',ui-monospace,monospace;white-space:nowrap}

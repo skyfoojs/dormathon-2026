@@ -1,16 +1,19 @@
 "use client";
 
 import * as React from "react";
+import { format } from "date-fns";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { KpiCard } from "@/components/dashboard/KpiCard";
+import { DashboardKpiCard } from "@/components/dashboard/DashboardKpiCard";
 import { ReportStatusDonut } from "@/components/dashboard/ReportStatusDonut";
 import { PendingReportsCard } from "@/components/dashboard/PendingReportsCard";
 import { ExpectedVsActualCard } from "@/components/dashboard/ExpectedVsActualCard";
 import { ReviewDialog } from "@/components/dashboard/ReviewDialog";
 import { AllReportsDialog } from "@/components/dashboard/AllReportsDialog";
+import { AegiAvatar } from "@/components/dashboard/AegiAvatar";
 import { useFacility } from "@/components/providers/FacilityProvider";
 import * as api from "@/lib/api/resources";
+import { accuracyTheme, KPI_ICON_PATHS, KPI_THEME, NO_DATA_THEME } from "@/lib/data/kpiStyle";
 import {
   getExpectedVsActualSeries,
   getItemsWellStockedKpi,
@@ -35,12 +38,41 @@ import type { Report, ReportStatus } from "@/lib/db/types";
 const DEFAULT_CHART_ITEM_ID = 1; // Salbutamol 100mcg MDI inhaler
 
 export default function DashboardView() {
-  const { facilityId } = useFacility();
-  if (facilityId === null) return null;
-  return <DashboardViewContent facilityId={facilityId} />;
+  const { facilityId, facility } = useFacility();
+  if (facilityId === null || facility === null) return null;
+  return (
+    <>
+      <DashboardViewContent facilityId={facilityId} facilityName={facility.facility_name} />
+      <AegiHost facilityId={facilityId} />
+    </>
+  );
 }
 
-function DashboardViewContent({ facilityId }: { facilityId: number }) {
+// Mounted as a sibling of the main Dashboard content, not inside it, so Aegi
+// jumps out as soon as the facility is known instead of waiting on every
+// chart/table query there to resolve - and so she never unmounts/remounts
+// when that content's own loading state changes.
+function AegiHost({ facilityId }: { facilityId: number }) {
+  const reportsQuery = useQuery({
+    queryKey: ["reports", facilityId],
+    queryFn: () => api.getReports(facilityId),
+  });
+  const reports = reportsQuery.data ?? [];
+  const reportsAreSample = reportsQuery.data === undefined || reports.length === 0;
+  const pendingCount = reportsAreSample
+    ? SAMPLE_PENDING_COUNT
+    : reports.filter((r) => r.status === "pending_approval").length;
+
+  return <AegiAvatar pending={pendingCount} sample={reportsAreSample} reviewHref="/warnings" />;
+}
+
+function DashboardViewContent({
+  facilityId,
+  facilityName,
+}: {
+  facilityId: number;
+  facilityName: string;
+}) {
   const qc = useQueryClient();
   const [selectedItemId, setSelectedItemId] = React.useState<number>(
     DEFAULT_CHART_ITEM_ID,
@@ -112,6 +144,9 @@ function DashboardViewContent({ facilityId }: { facilityId: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportsQuery.data, facilityId]);
 
+  // Aegi mounts as soon as the facility is known (see the outer DashboardView
+  // component), independent of this `loading` gate below, so she doesn't wait
+  // on every chart/table query to resolve before jumping out.
   if (loading) {
     return (
       <>
@@ -169,57 +204,55 @@ function DashboardViewContent({ facilityId }: { facilityId: number }) {
     setReviewing(report);
   }
 
+  const todayLine = `${format(new Date(), "EEEE d MMMM yyyy")} · ${facilityName}`;
+
+  const poHasData = poDelivered.total > 0;
+  const accuracyHasData = accuracyKpi.productCount > 0;
+  const stockHasData = wellStocked.total > 0;
+
   return (
     <>
-      <PageHeader title="Dashboard" />
+      <PageHeader title="Dashboard" subtitle={todayLine} />
 
       <section
         aria-label="Key indicators"
-        className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-4"
+        className="mt-1 grid grid-cols-[repeat(auto-fit,minmax(min(230px,100%),1fr))] gap-3"
       >
-        <KpiCard
+        <DashboardKpiCard
           label="Air pollution index"
           provenance="public-evidence"
           value={liveHaze ? String(liveHaze.apiAvg) : "—"}
-          sub={
-            liveHaze
-              ? `${liveHaze.category} · ${liveHaze.locationLabel}`
-              : "Live reading unavailable."
-          }
+          sub={liveHaze ? liveHaze.category : "Live reading unavailable."}
+          iconPath={KPI_ICON_PATHS.air}
+          theme={liveHaze ? KPI_THEME.air : NO_DATA_THEME}
+          delayMs={0}
         />
-        <KpiCard
+        <DashboardKpiCard
           label="Purchase orders delivered"
           provenance="database"
-          value={`${poDelivered.delivered} of ${poDelivered.total}`}
-          valueTone="green"
-          sub={`${poDelivered.total - poDelivered.delivered} still open`}
+          value={poHasData ? `${poDelivered.delivered} of ${poDelivered.total}` : "—"}
+          sub={poHasData ? `${poDelivered.total - poDelivered.delivered} still open` : "No sample data"}
+          iconPath={KPI_ICON_PATHS.po}
+          theme={poHasData ? KPI_THEME.po : NO_DATA_THEME}
+          delayMs={80}
         />
-        <KpiCard
+        <DashboardKpiCard
           label="Prediction accuracy"
           provenance="synthetic-data"
-          value={
-            accuracyKpi.productCount > 0
-              ? `${accuracyKpi.meanAccuracy.toFixed(1)}%`
-              : "—"
-          }
-          valueTone={
-            accuracyKpi.meanAccuracy >= 90
-              ? "green"
-              : accuracyKpi.meanAccuracy >= 80
-                ? "amber"
-                : "red"
-          }
-          sub={
-            accuracyKpi.productCount > 0
-              ? `All products, ${accuracyKpi.weeksScored} weeks`
-              : "Not enough history yet"
-          }
+          value={accuracyHasData ? `${accuracyKpi.meanAccuracy.toFixed(1)}%` : "—"}
+          sub={accuracyHasData ? `All products, ${accuracyKpi.weeksScored} weeks` : "No sample data"}
+          iconPath={KPI_ICON_PATHS.accuracy}
+          theme={accuracyHasData ? accuracyTheme(accuracyKpi.meanAccuracy) : NO_DATA_THEME}
+          delayMs={160}
         />
-        <KpiCard
+        <DashboardKpiCard
           label="Items well stocked"
           provenance="model-output"
-          value={`${wellStocked.wellStocked} of ${wellStocked.total}`}
-          sub={`${wellStocked.total - wellStocked.wellStocked} running low`}
+          value={stockHasData ? `${wellStocked.wellStocked} of ${wellStocked.total}` : "—"}
+          sub={stockHasData ? `${wellStocked.total - wellStocked.wellStocked} running low` : "No sample data"}
+          iconPath={KPI_ICON_PATHS.stock}
+          theme={stockHasData ? KPI_THEME.stock : NO_DATA_THEME}
+          delayMs={240}
         />
       </section>
 
