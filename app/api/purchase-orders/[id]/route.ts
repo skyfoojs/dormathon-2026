@@ -16,7 +16,7 @@ const updatePurchaseOrderSchema = z.object({
   expected_receipt_date: z.string().min(1),
   actual_receipt_date: z.string().nullable().optional(),
   qty_received: z.coerce.number().int().min(0).nullable().optional(),
-  status: z.enum(["Draft", "In transit", "Delivered", "Cancelled"]),
+  status: z.enum(["Pending", "In transit", "Delivered", "Cancelled"]),
 });
 
 const orderLineSchema = z.object({
@@ -31,7 +31,7 @@ const saveOrderSchema = z.object({
   supplier_id: z.coerce.number().int().min(1),
   order_date: z.string().min(1),
   expected_receipt_date: z.string().min(1),
-  status: z.enum(["Draft", "In transit", "Delivered", "Cancelled"]),
+  status: z.enum(["Pending", "In transit", "Delivered", "Cancelled"]),
   actual_receipt_date: z.string().nullable(),
   lines: z.array(orderLineSchema).min(1).max(100),
 });

@@ -71,10 +71,10 @@ export type WeeklyInventory = {
 // Matches the real database's values, confirmed against live data:
 // "In transit" and "Delivered" are the only values currently in use;
 // "Cancelled" is allowed by the column but not currently used.
-// "Draft" is an order still being prepared: it can be edited, and it does
-// not count as incoming stock until it moves to "In transit".
+// "Pending" is an order waiting for the supplier to review it. It is
+// read-only in the app and does not count as incoming stock.
 export type PurchaseOrderStatus =
-  | "Draft"
+  | "Pending"
   | "In transit"
   | "Delivered"
   | "Cancelled";

@@ -12,7 +12,7 @@ import type { OrderRow } from "@/lib/data/inventory";
 import type { PurchaseOrderCreator } from "@/lib/db/types";
 
 export const STATUS_TONE: Record<PurchaseOrderDisplayStatus, TagTone> = {
-  Draft: "dashed",
+  Pending: "violet",
   "On the way": "blue",
   "Due today": "amber",
   Delayed: "red",
@@ -38,7 +38,6 @@ export function PurchaseOrdersTable({
   onMarkReceived,
   onView,
   onGeneratePdf,
-  onEdit,
   onDelete,
 }: {
   rows: OrderRow[];
@@ -46,7 +45,6 @@ export function PurchaseOrdersTable({
   onMarkReceived: (row: OrderRow) => void;
   onView: (row: OrderRow) => void;
   onGeneratePdf: (row: OrderRow) => void;
-  onEdit: (row: OrderRow) => void;
   onDelete: (row: OrderRow) => void;
 }) {
   const columns = [
@@ -129,8 +127,8 @@ export function PurchaseOrdersTable({
             </IconButton>
             <RowActions
               label={label}
-              onEdit={row.original.po.status === "Draft" ? () => onEdit(row.original) : undefined}
-              onDelete={() => onDelete(row.original)}
+              // A pending order is with the supplier: it can only be viewed.
+              onDelete={row.original.po.status === "Pending" ? undefined : () => onDelete(row.original)}
             />
           </div>
         );

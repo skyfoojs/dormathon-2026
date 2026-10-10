@@ -14,7 +14,7 @@ const createPurchaseOrderSchema = z.object({
   expected_receipt_date: z.string().min(1),
   actual_receipt_date: z.string().nullable().optional(),
   qty_received: z.coerce.number().int().min(0).nullable().optional(),
-  status: z.enum(["Draft", "In transit", "Delivered", "Cancelled"]),
+  status: z.enum(["Pending", "In transit", "Delivered", "Cancelled"]),
 });
 
 const listQuerySchema = z.object({

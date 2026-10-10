@@ -9,7 +9,8 @@ export function RowActions({
   label: string;
   // Leave out to hide the edit button, e.g. for a row that is locked.
   onEdit?: () => void;
-  onDelete: () => void;
+  // Leave out to hide the delete button, e.g. for a read-only row.
+  onDelete?: () => void;
 }) {
   return (
     <div className="flex items-center gap-2">
@@ -18,9 +19,11 @@ export function RowActions({
           <Pencil size={18} aria-hidden="true" />
         </IconButton>
       ) : null}
-      <IconButton aria-label={`Delete ${label}`} onClick={onDelete}>
-        <Trash2 size={18} aria-hidden="true" />
-      </IconButton>
+      {onDelete ? (
+        <IconButton aria-label={`Delete ${label}`} title="Delete" onClick={onDelete}>
+          <Trash2 size={18} aria-hidden="true" />
+        </IconButton>
+      ) : null}
     </div>
   );
 }

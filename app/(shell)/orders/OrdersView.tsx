@@ -10,26 +10,30 @@ import { FilterChips } from "@/components/ui/FilterChips";
 import { SavedBanner, ConfirmDeleteBanner } from "@/components/ui/Banner";
 import { Modal } from "@/components/ui/Modal";
 import { PurchaseOrderDetails } from "@/components/orders/PurchaseOrderDetails";
-import { PurchaseOrderForm } from "@/components/orders/PurchaseOrderForm";
 import { PurchaseOrdersTable } from "@/components/orders/PurchaseOrdersTable";
 import { useFacility } from "@/components/providers/FacilityProvider";
 import { getPurchaseOrderRows, groupOrderRows, type OrderRow } from "@/lib/data/inventory";
 import { isPurchaseOrderDelayed } from "@/lib/data/purchaseOrders";
 import { TODAY_ISO } from "@/lib/db/seed";
 import { openPoPdf } from "@/lib/orders/poDocument";
-import type { PurchaseOrderFormValues } from "@/lib/validation/inventory";
 import * as api from "@/lib/api/resources";
-import type { PurchaseOrderStatus } from "@/lib/db/types";
+import type { PurchaseOrderCreator, PurchaseOrderStatus } from "@/lib/db/types";
 
 type Filter = PurchaseOrderStatus | "all";
+type CreatorFilter = PurchaseOrderCreator | "all";
 
 type Panel =
   | { mode: "view"; id: number }
-  | { mode: "edit"; id: number }
   | { mode: "delete"; id: number };
 
+const CREATOR_FILTER_LABELS: { id: CreatorFilter; label: string }[] = [
+  { id: "AiGIS", label: "AiGIS" },
+  { id: "Manual", label: "Manual" },
+  { id: "all", label: "All" },
+];
+
 const FILTER_LABELS: { id: Filter; label: string }[] = [
-  { id: "Draft", label: "Draft" },
+  { id: "Pending", label: "Pending" },
   { id: "In transit", label: "In transit" },
   { id: "Delivered", label: "Delivered" },
   { id: "Cancelled", label: "Cancelled" },
@@ -37,7 +41,7 @@ const FILTER_LABELS: { id: Filter; label: string }[] = [
 ];
 
 const EMPTY_MESSAGE: Record<Filter, string> = {
-  Draft: "No draft orders. Drafts appear here until they are sent.",
+  Pending: "No orders are waiting on a supplier.",
   "In transit": "Nothing in transit. Every order has arrived or been cancelled.",
   Delivered: "No delivered orders yet.",
   Cancelled: "No cancelled orders.",
@@ -55,7 +59,8 @@ export default function OrdersView() {
 
 function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; facilityName: string }) {
   const qc = useQueryClient();
-  const [filter, setFilter] = React.useState<Filter>("Draft");
+  const [filter, setFilter] = React.useState<Filter>("Pending");
+  const [creatorFilter, setCreatorFilter] = React.useState<CreatorFilter>("AiGIS");
   const [search, setSearch] = React.useState("");
   const [panel, setPanel] = React.useState<Panel | null>(null);
   const [showSaved, setShowSaved] = React.useState(false);
@@ -67,15 +72,10 @@ function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; f
     queryKey: ["purchase-orders", facilityId],
     queryFn: () => api.getPurchaseOrders(facilityId),
   });
-  const weeklyInventoryQuery = useQuery({
-    queryKey: ["weekly-inventory", facilityId],
-    queryFn: () => api.getWeeklyInventory(facilityId),
-  });
 
   const items = itemsQuery.data ?? [];
   const suppliers = suppliersQuery.data ?? [];
   const purchaseOrders = poQuery.data ?? [];
-  const weeklyInventory = weeklyInventoryQuery.data ?? [];
 
   function saved() {
     setPanel(null);
@@ -108,14 +108,24 @@ function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; f
   const itemsDelivered = deliveredLines.reduce((sum, po) => sum + (po.qty_received ?? 0), 0);
   const valueDelivered = deliveredLines.reduce((sum, po) => sum + (po.qty_received ?? 0) * po.unit_cost_myr, 0);
 
+  // An order with no created_by value counts as Manual.
+  const matchesCreator = (r: OrderRow, id: CreatorFilter) => id === "all" || (r.po.created_by ?? "Manual") === id;
+  const matchesStatus = (r: OrderRow, id: Filter) => id === "all" || r.po.status === id;
+
+  // Each group's counts respect the other group's selection, so a chip's
+  // number is what choosing it would show.
+  const creatorChips = CREATOR_FILTER_LABELS.map((f) => ({
+    ...f,
+    count: allRows.filter((r) => matchesCreator(r, f.id) && matchesStatus(r, filter)).length,
+  }));
   const chips = FILTER_LABELS.map((f) => ({
     ...f,
-    count: f.id === "all" ? allRows.length : allRows.filter((r) => r.po.status === f.id).length,
+    count: allRows.filter((r) => matchesStatus(r, f.id) && matchesCreator(r, creatorFilter)).length,
   }));
 
   const query = search.trim().toLowerCase();
   const visibleRows = allRows
-    .filter((r) => filter === "all" || r.po.status === filter)
+    .filter((r) => matchesStatus(r, filter) && matchesCreator(r, creatorFilter))
     .filter((r) => !query || `po-${r.po.po_id} ${r.supplierName}`.toLowerCase().includes(query));
   // In transit: soonest expected first, so delayed orders lead. Other views
   // keep getPurchaseOrderRows' newest-ordered-first order.
@@ -144,29 +154,6 @@ function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; f
     });
   }
 
-  function handlePoSubmit(values: PurchaseOrderFormValues) {
-    if (panel?.mode !== "edit") return;
-    const isDelivered = values.status === "Delivered";
-    saveOrderMutation.mutate({
-      id: panel.id,
-      input: {
-        supplier_id: values.supplier_id,
-        order_date: values.order_date,
-        expected_receipt_date: values.expected_receipt_date,
-        status: values.status,
-        actual_receipt_date: isDelivered ? (values.actual_receipt_date ?? null) : null,
-        lines: values.lines.map((line) => ({
-          po_id: line.po_id,
-          item_id: line.item_id,
-          qty_ordered: line.qty_ordered,
-          unit_cost_myr: line.unit_cost_myr,
-          // A delivered line left blank is taken as received in full.
-          qty_received: isDelivered ? (line.qty_received ?? line.qty_ordered) : null,
-        })),
-      },
-    });
-  }
-
   function handleGeneratePdf(order: OrderRow) {
     setPdfError(null);
     openPoPdf({ order, facilityName, loadDocument: api.getPoDocument }).catch((err: Error) =>
@@ -187,7 +174,6 @@ function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; f
     itemsQuery.error ||
     suppliersQuery.error ||
     poQuery.error ||
-    weeklyInventoryQuery.error ||
     saveOrderMutation.error ||
     deleteOrderMutation.error;
 
@@ -219,26 +205,6 @@ function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; f
           onConfirm={handleDeleteConfirm}
         />
       ) : null}
-
-      <Modal
-        open={panel?.mode === "edit" && selectedOrder !== undefined}
-        onOpenChange={(open) => !open && setPanel(null)}
-        title={panel ? `Edit PO-${panel.id}` : "Edit purchase order"}
-        size="lg"
-      >
-        {panel?.mode === "edit" && selectedOrder ? (
-          <PurchaseOrderForm
-            key={panel.id}
-            order={selectedOrder}
-            facilityId={facilityId}
-            items={items}
-            suppliers={suppliers}
-            weeklyInventory={weeklyInventory}
-            onCancel={() => setPanel(null)}
-            onSubmit={handlePoSubmit}
-          />
-        ) : null}
-      </Modal>
 
       <Modal
         open={panel?.mode === "view" && selectedOrder !== undefined}
@@ -275,7 +241,15 @@ function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; f
 
       <section className="flex flex-col gap-3">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <FilterChips label="Filter by status" chips={chips} value={filter} onChange={setFilter} />
+          <div className="flex flex-col gap-2">
+            <FilterChips
+              label="Filter by who created the order"
+              chips={creatorChips}
+              value={creatorFilter}
+              onChange={setCreatorFilter}
+            />
+            <FilterChips label="Filter by status" chips={chips} value={filter} onChange={setFilter} />
+          </div>
           <div className="relative w-full md:max-w-xs">
             <Label htmlFor="order-search" className="sr-only">
               Search orders
@@ -295,18 +269,24 @@ function OrdersViewContent({ facilityId, facilityName }: { facilityId: number; f
           </div>
         </div>
         <PurchaseOrdersTable
-          key={`${filter}:${query}`}
+          key={`${creatorFilter}:${filter}:${query}`}
           rows={visibleRows}
-          emptyMessage={query ? `No orders match "${search.trim()}".` : EMPTY_MESSAGE[filter]}
+          emptyMessage={
+            query
+              ? `No orders match "${search.trim()}".`
+              : creatorFilter === "AiGIS"
+                ? "No AiGIS-generated orders in this view."
+                : EMPTY_MESSAGE[filter]
+          }
           onMarkReceived={handleMarkReceived}
           onView={(r) => setPanel({ mode: "view", id: r.po.po_id })}
           onGeneratePdf={handleGeneratePdf}
-          onEdit={(r) => setPanel({ mode: "edit", id: r.po.po_id })}
           onDelete={(r) => setPanel({ mode: "delete", id: r.po.po_id })}
         />
         <p className="text-xs text-muted">
-          Only draft orders can be edited. Orders in transit count as incoming stock in every forecast, and
-          Mark received records every line as arriving in full today.
+          Pending orders are waiting for the supplier to review them and can only be viewed. Orders in transit
+          count as incoming stock in every forecast, and Mark received records every line as arriving in full
+          today.
         </p>
       </section>
     </>

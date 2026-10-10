@@ -2,7 +2,7 @@ import type { PurchaseOrder } from "@/lib/db/types";
 import { daysFromToday, formatDueLabel, formatShortDate } from "@/lib/data/dates";
 
 export type PurchaseOrderDisplayStatus =
-  | "Draft"
+  | "Pending"
   | "On the way"
   | "Due today"
   | "Delayed"
@@ -21,8 +21,8 @@ export function getPurchaseOrderDisplayStatus(po: PurchaseOrder): {
     ].filter(Boolean);
     return { label: "Received", note: parts.join(", ") };
   }
-  if (po.status === "Draft") {
-    return { label: "Draft", note: "Not sent yet" };
+  if (po.status === "Pending") {
+    return { label: "Pending", note: "Awaiting supplier review" };
   }
   if (po.status === "Cancelled") {
     return { label: "Cancelled", note: "" };
