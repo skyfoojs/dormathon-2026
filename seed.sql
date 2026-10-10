@@ -3,16 +3,16 @@
 -- Resets stock, orders and forecasts to a realistic history for the existing
 -- items, from 2026-04-13 to 2026-10-10. Running it again gives the same data.
 --
--- REMOVES every row from: ai_forecasts, demand_forecasts, purchase_orders,
+-- REMOVES every row from: ai_forecasts, demand_forecasts, news_verdicts,
+-- articles, llm_calls, council_seats, council_runs, sync_runs, purchase_orders,
 -- po_documents, batches, daily_inventory, weekly_inventory, haze_api_weekly.
--- KEEPS: news sources, articles, verdicts, council and sync history, LLM call
--- log, policies, and suppliers.email.
+-- KEEPS: news sources, policies, and suppliers.email.
 --
--- After running it, save fresh forecasts: POST /api/forecasts (or a full sync).
+-- After running it, press Full sync on the Predictions page for fresh forecasts.
 
 BEGIN;
 
-TRUNCATE TABLE public.ai_forecasts, public.demand_forecasts, public.purchase_orders, public.po_documents, public.batches, public.daily_inventory, public.weekly_inventory, public.haze_api_weekly RESTART IDENTITY;
+TRUNCATE TABLE public.ai_forecasts, public.demand_forecasts, public.news_verdicts, public.articles, public.llm_calls, public.council_seats, public.council_runs, public.sync_runs, public.purchase_orders, public.po_documents, public.batches, public.daily_inventory, public.weekly_inventory, public.haze_api_weekly RESTART IDENTITY;
 
 INSERT INTO public.facilities (facility_id, facility_name, facility_type, sector, district, state, size_tier) VALUES
   (7, 'Sunway Medical Centre', 'Hospital', 'Private', 'Petaling', 'Selangor', 'Medium')
