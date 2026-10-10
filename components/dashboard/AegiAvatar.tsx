@@ -60,8 +60,8 @@ function lines(pending: number): string[] {
 }
 
 // Intro timeline (ms from mount). She only plays the typed-out, one-by-one
-// reveal on this first run. After that she rests tucked at the edge and
-// opens (instantly, no re-typing) on hover, click, tap or keyboard.
+// reveal on this first run. Once it ends and nobody is engaging with her,
+// she slides fully off the page and stays away until the next page load.
 const APPEAR_AT = 700; // jumps out from the edge
 const TYPE1_AT = 2200;
 const MSG1_AT = 3500;
@@ -137,8 +137,8 @@ export function AegiAvatar({
   // in her pre-animation state forever - which is exactly what happened.
   React.useEffect(() => {
     // Already played earlier this page load (this is a client-side nav back
-    // to the Dashboard, not a fresh load): rest tucked, ready to open,
-    // skip the whole intro.
+    // to the Dashboard, not a fresh load): she has already left, so stay
+    // off-screen and skip the whole intro.
     if (!playingIntro) return;
     markIntroPlayed();
 
@@ -150,7 +150,7 @@ export function AegiAvatar({
 
     if (reduceMotion) {
       // No bobbing/typing/bubble-pop: she and the messages simply appear,
-      // then tuck away.
+      // then she leaves.
       after(0, () => {
         setAppeared(true);
         setBubbleCount(3);
@@ -269,15 +269,9 @@ export function AegiAvatar({
 
   const open = !playingIntro && (hovering || pinned);
   const out = playingIntro ? appeared : open;
-  const tucked = !playingIntro && !open;
-  const showGirlButton = !playingIntro || appeared;
   const msgs = lines(pending);
   const showMsgs = playingIntro ? !introCollapsed && (bubbleCount > 0 || typing) : open;
-  const girlLabel = playingIntro
-    ? "Skip Aegi’s introduction"
-    : open
-      ? "Hide Aegi’s messages"
-      : "Show Aegi’s messages";
+  const girlLabel = playingIntro ? "Skip Aegi’s introduction" : "Hide Aegi";
 
   return (
     <aside ref={rootRef} aria-label="Aegi, your stock assistant">
@@ -289,12 +283,13 @@ export function AegiAvatar({
       {/* The character is drawn at a fixed size, so the whole box is scaled
           from its bottom-right corner, smaller on smaller screens. */}
       <div
-        className="pointer-events-none fixed right-0 bottom-20 z-30 h-56 w-56 origin-bottom-right scale-40 sm:scale-50 xl:scale-60"
+        className="pointer-events-none fixed right-0 bottom-4 z-30 h-56 w-56 origin-bottom-right scale-40 sm:scale-50 xl:scale-60"
         onPointerEnter={onPointerEnter}
         onPointerLeave={onPointerLeave}
       >
-        {/* Out, she stands a little clear of the page edge. Tucked, she
-            peeks from the edge itself. */}
+        {/* Out, she stands a little clear of the page edge. Otherwise the
+            base .ai-girl transform holds her more than her own width past
+            the right edge, so she is fully off the page at every size. */}
         <div
           className={cn(
             "absolute inset-0 transition-transform duration-500 ease-out motion-reduce:transition-none",
@@ -307,29 +302,27 @@ export function AegiAvatar({
             className={cn(
               "ai-girl",
               out && "ai-out",
-              // The jump-in is for the intro only. Afterwards she slides
-              // between tucked and out, instead of restarting from off-screen.
+              // The jump-in is for the intro only; it must not replay when
+              // the intro is skipped.
               !playingIntro && "ai-steady",
-              tucked && "ai-peek",
+              // Leaving uses its own slower curve. The default one is tuned
+              // for the bouncy entrance and would whisk her away in a blink.
+              !playingIntro && !out && "ai-leave",
               talking && "ai-talk",
             )}
             dangerouslySetInnerHTML={{ __html: GIRL_SVG }}
           />
         </div>
         {/* The click and hover target. It does not move with her animation,
-            so she can't slide out from under the pointer. Tucked, it covers
-            only the half of her that is on screen. */}
-        {showGirlButton ? (
+            so she can't slide out from under the pointer. Gone once she
+            leaves. */}
+        {out ? (
           <button
             type="button"
             onClick={onGirlClick}
             aria-expanded={showMsgs}
             aria-label={girlLabel}
-            className={cn(
-              "pointer-events-auto absolute inset-y-0 right-0 cursor-pointer rounded-lg",
-              tucked ? "w-5/12" : "w-full",
-              focusRingClasses,
-            )}
+            className={cn("pointer-events-auto absolute inset-0 cursor-pointer rounded-lg", focusRingClasses)}
           />
         ) : null}
       </div>
@@ -341,7 +334,7 @@ export function AegiAvatar({
         aria-live="polite"
         inert={!showMsgs}
         className={cn(
-          "pointer-events-none fixed inset-x-4 bottom-48 z-30 flex flex-col items-end gap-2 transition duration-200 sm:right-30 sm:bottom-24 sm:left-auto sm:max-w-sm xl:right-36",
+          "pointer-events-none fixed inset-x-4 bottom-32 z-30 flex flex-col items-end gap-2 transition duration-200 sm:right-30 sm:bottom-8 sm:left-auto sm:max-w-sm xl:right-36",
           showMsgs ? "sm:pointer-events-auto" : "translate-x-4 opacity-0",
         )}
         onPointerEnter={onPointerEnter}

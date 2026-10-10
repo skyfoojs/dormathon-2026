@@ -179,6 +179,7 @@ CREATE INDEX purchase_orders_po_doc_id_idx ON public.purchase_orders (po_doc_id)
 
 -- =====================================================================
 -- ALGORITHMIC FORECAST (daily model, lib/forecast/demand.ts; adapts docs/Internal-Calculation.md from weeks to days)
+-- Level, trend and wma_qty are for an average day: the day-of-week pattern is divided out before forecasting.
 -- Usage on day h = w * max(level + trend * (phi + phi^2 + ... + phi^h), 0) + (1 - w) * wma_qty
 -- Buy when actual stock left <= threshold (items.reorder_level, else usage over lead_days + safety_stock).
 -- Buy amount = usage over cover_days + safety_stock.
@@ -196,8 +197,8 @@ CREATE TABLE public.demand_forecasts (
   phi double precision,                -- trend damping (0.95): the trend fades so it can't run away over long horizons
   holt_level double precision,         -- Holt's smoothed daily usage at the last actual day
   holt_trend double precision,         -- Holt's smoothed change in daily usage per day (what bends the projected line)
-  wma_qty double precision,            -- 28-day weighted moving average of daily usage (newest day weighs most)
-  holt_weight double precision,        -- w: share given to Holt vs WMA (0.25-0.75, by which was more accurate)
+  wma_qty double precision,            -- 56-day weighted moving average of daily usage (newest day weighs most)
+  holt_weight double precision,        -- w: share given to Holt vs WMA (0.25-0.75, by which predicted 7-day totals better)
   usage_per_day double precision NOT NULL,  -- forecast usage for forecast_date (day 1). Cycle 2 compares against this
   sigma double precision,              -- std dev of daily usage / forecast error (how much usage swings)
   z double precision,                  -- service-level factor: 2.05 critical items (98%), 1.65 others (95%)
