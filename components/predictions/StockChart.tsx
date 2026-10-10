@@ -126,17 +126,18 @@ export function StockChart({
 }) {
   const [timeframe, setTimeframe] = React.useState<Timeframe>("monthly");
   const [today] = React.useState(todayTs);
-  const [range, setRange] = React.useState<[number, number] | null>(null);
   const signature = seriesSignature(series);
   const points = React.useMemo(() => buildPoints(series, today), [series, today]);
+  const [range, setRange] = React.useState<[number, number]>(() => indexRange(points, windowFor(timeframe, today)));
   const yMax = Math.max(0, ...thresholds.map((t) => Math.round(t.value)));
-  const [startIndex, endIndex] = range ?? [0, points.length - 1];
+  const [startIndex, endIndex] = range;
 
   React.useEffect(() => {
+    const [start, end] = indexRange(points, windowFor(timeframe, today));
     let inner = 0;
     const outer = requestAnimationFrame(() => {
-      setRange(null);
-      inner = requestAnimationFrame(() => setRange(indexRange(points, windowFor(timeframe, today))));
+      setRange([start, Math.max(start + 1, end - 1)]);
+      inner = requestAnimationFrame(() => setRange([start, end]));
     });
     return () => {
       cancelAnimationFrame(outer);

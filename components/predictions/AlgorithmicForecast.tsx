@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { UpdatingFade } from "@/components/ui/UpdatingFade";
 import { Card } from "@/components/ui/Card";
 import { ErrorBanner } from "@/components/ui/Banner";
 import { ProvenanceTag, Tag } from "@/components/ui/Tag";
@@ -49,12 +50,15 @@ function methodGap(line: AlgorithmicForecastLine): string {
 }
 
 function AlgorithmicChart({ data, line }: { data: ItemStockProjection; line: AlgorithmicForecastLine }) {
-  const series = [
-    actualSeries(data),
-    ...(line.holtProjection ? [holtSeries(line.holtProjection)] : []),
-    ...(line.wmaProjection ? [wmaSeries(line.wmaProjection)] : []),
-    averageSeries(line.projection),
-  ];
+  const series = React.useMemo(
+    () => [
+      actualSeries(data),
+      ...(line.holtProjection ? [holtSeries(line.holtProjection)] : []),
+      ...(line.wmaProjection ? [wmaSeries(line.wmaProjection)] : []),
+      averageSeries(line.projection),
+    ],
+    [data, line],
+  );
   const summary = `Stock for ${data.itemName} with Holt, moving average and weighted average forecasts. ${
     line.stockoutDate ? `The weighted average runs out on ${line.stockoutDate}.` : "It does not run out in the next 12 weeks."
   }`;
@@ -81,8 +85,10 @@ export function AlgorithmicForecast({
     queryKey: ["stock-projection", itemId, runId],
     queryFn: () => api.getStockProjection(itemId as number, runId ?? undefined),
     enabled: itemId !== null,
+    placeholderData: keepPreviousData,
   });
   const data = projectionQuery.data;
+  const updating = projectionQuery.isPlaceholderData;
   const line = data?.algorithmic ?? null;
 
   return (
@@ -98,7 +104,7 @@ export function AlgorithmicForecast({
         </div>
       </div>
 
-      <ItemSelect id="algo-item" items={items} value={itemId} onChange={setSelectedId} />
+      <ItemSelect id="algo-item" items={items} value={itemId} onChange={setSelectedId} updating={updating} />
 
       {projectionQuery.error ? (
         <ErrorBanner>Could not load the forecast: {(projectionQuery.error as Error).message}</ErrorBanner>
@@ -109,7 +115,7 @@ export function AlgorithmicForecast({
       ) : !line ? (
         <p className="text-sm text-muted">No algorithmic forecast for this item in this run.</p>
       ) : (
-        <>
+        <UpdatingFade updating={updating} className="flex flex-col gap-5">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatTile label="Holt trend, per day" value={perDay(line.holtPerDay)} />
             <StatTile label="Moving avg 56d, per day" value={perDay(line.wmaPerDay)} />
@@ -132,7 +138,7 @@ export function AlgorithmicForecast({
               <StepList steps={STEPS} />
             </div>
           </div>
-        </>
+        </UpdatingFade>
       )}
     </Card>
   );

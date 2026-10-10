@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { UpdatingFade } from "@/components/ui/UpdatingFade";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ErrorBanner, InfoBanner } from "@/components/ui/Banner";
 import { ProvenanceTag, Tag } from "@/components/ui/Tag";
@@ -53,6 +54,18 @@ function CouncilCard({
   );
 }
 
+function AiChart({ data, line }: { data: ItemStockProjection; line: AiForecastLine }) {
+  const series = React.useMemo(() => [actualSeries(data), aiSeries(line.projection)], [data, line]);
+  return (
+    <StockChart
+      series={series}
+      thresholds={[thresholdLine(data, line.threshold)]}
+      markers={triggerMarker(line.projection, line.trigger, line.threshold, "var(--color-amber-border)")}
+      summary={`Stock for ${data.itemName} with the AI forecast at ×${line.usageMultiplier} of the algorithmic usage.`}
+    />
+  );
+}
+
 function AiStats({ data, line }: { data: ItemStockProjection; line: AiForecastLine }) {
   const last = data.history[data.history.length - 1];
   return (
@@ -84,8 +97,10 @@ function AiRunoutCard({
     queryKey: ["stock-projection", itemId, runId],
     queryFn: () => api.getStockProjection(itemId as number, runId),
     enabled: itemId !== null,
+    placeholderData: keepPreviousData,
   });
   const data = projectionQuery.data;
+  const updating = projectionQuery.isPlaceholderData;
   const line = data?.ai ?? null;
 
   return (
@@ -97,7 +112,7 @@ function AiRunoutCard({
           <ProvenanceTag kind="model-output" />
         </div>
       </CardHeader>
-      <ItemSelect id="ai-item" items={items} value={itemId} onChange={onItemChange} />
+      <ItemSelect id="ai-item" items={items} value={itemId} onChange={onItemChange} updating={updating} />
       {projectionQuery.error ? (
         <ErrorBanner>Could not load the AI forecast: {(projectionQuery.error as Error).message}</ErrorBanner>
       ) : !data ? (
@@ -107,14 +122,9 @@ function AiRunoutCard({
       ) : !line ? (
         <p className="text-sm text-muted">No AI forecast for this item in this run.</p>
       ) : (
-        <>
+        <UpdatingFade updating={updating} className="flex flex-col gap-4">
           <RestockStatus lines={[{ name: "AI", trigger: line.trigger }]} unit={data.unit} />
-          <StockChart
-            series={[actualSeries(data), aiSeries(line.projection)]}
-            thresholds={[thresholdLine(data, line.threshold)]}
-            markers={triggerMarker(line.projection, line.trigger, line.threshold, "var(--color-amber-border)")}
-            summary={`Stock for ${data.itemName} with the AI forecast at ×${line.usageMultiplier} of the algorithmic usage.`}
-          />
+          <AiChart data={data} line={line} />
           <AiStats data={data} line={line} />
           {line.reasoning ? (
             <p className="text-sm text-strong-muted">
@@ -126,7 +136,7 @@ function AiRunoutCard({
             The AI forecast is the algorithmic usage scaled by the council&apos;s multiplier, fading back to ×1 over the
             fade days. Orders in transit are added on their expected date.
           </p>
-        </>
+        </UpdatingFade>
       )}
     </Card>
   );
