@@ -3,7 +3,10 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { RefreshCw } from "lucide-react";
 import { ErrorBanner } from "@/components/ui/Banner";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { SyncRunsCard, isActive, type RunFilter } from "@/components/predictions/SyncRunsCard";
 import { ForecastModeSwitch, type ForecastMode } from "@/components/predictions/ForecastModeSwitch";
 import { OverallForecastCard } from "@/components/predictions/OverallForecastCard";
@@ -87,6 +90,8 @@ export default function PredictionsView() {
     : requestedMode;
   const activeRun = runs.find(isActive) ?? null;
   const loadError = runsQuery.error || itemsQuery.error || councilQuery.error;
+  const noRuns = runsQuery.isSuccess && runs.length === 0;
+  const noSyncs = noRuns && filter.kind === "both";
 
   return (
     <>
@@ -103,13 +108,27 @@ export default function PredictionsView() {
         onSync={(scope) => syncMutation.mutate(scope)}
         activeRun={activeRun}
         syncError={syncMutation.error ? (syncMutation.error as Error).message : null}
+        noSyncs={noSyncs}
       />
 
       <OverallForecastCard runId={runId} items={items} />
 
       <ForecastModeSwitch mode={mode} onChange={setRequestedMode} disabled={disabled} />
 
-      {runId !== null && !council && !councilQuery.error ? (
+      {noSyncs ? (
+        <EmptyState
+          icon={RefreshCw}
+          title="No syncs yet"
+          description="Press Full sync to create the first forecasts."
+          action={
+            <Button variant="primary" disabled={syncMutation.isPending} onClick={() => syncMutation.mutate("full")}>
+              Full sync
+            </Button>
+          }
+        />
+      ) : noRuns ? (
+        <p className="text-sm text-muted">No runs match this filter.</p>
+      ) : runId !== null && !council && !councilQuery.error ? (
         <p role="status" className="text-sm text-muted">
           Loading run{"…"}
         </p>

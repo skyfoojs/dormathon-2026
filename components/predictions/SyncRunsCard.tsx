@@ -112,6 +112,7 @@ export function SyncRunsCard({
   onSync,
   activeRun,
   syncError,
+  noSyncs,
 }: {
   runs: SyncRun[];
   selectedRunId: number | null;
@@ -121,6 +122,7 @@ export function SyncRunsCard({
   onSync: (scope: SyncScope) => void;
   activeRun: SyncRun | null;
   syncError: string | null;
+  noSyncs: boolean;
 }) {
   const [requestedPage, setRequestedPage] = React.useState(0);
   const pageCount = Math.max(1, Math.ceil(runs.length / RUNS_PER_PAGE));
@@ -170,7 +172,7 @@ export function SyncRunsCard({
       />
 
       {runs.length === 0 ? (
-        <p className="text-sm text-muted">No runs match this filter.</p>
+        <p className="text-sm text-muted">{noSyncs ? "No syncs yet." : "No runs match this filter."}</p>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {runs.slice(first, first + RUNS_PER_PAGE).map((run) => (

@@ -43,7 +43,7 @@ export function ForecastModeSwitch({
   return (
     <div role="group" aria-label="Prediction method" className="grid grid-cols-1 gap-3 md:grid-cols-2">
       {MODES.map(({ mode: value, name, description, tag, tagTone, Icon }) => {
-        const selected = mode === value;
+        const selected = mode === value && !disabled.includes(value);
         return (
           <button
             key={value}

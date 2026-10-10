@@ -52,7 +52,9 @@ export function OverallForecastCard({
               unit={data.unit}
             />
           ) : (
-            <p className="text-sm text-muted">No forecast for this item in this run. Showing actual stock only.</p>
+            <p className="text-sm text-muted">
+              {runId === null ? "No forecasts yet." : "No forecast for this item in this run."} Showing actual stock only.
+            </p>
           )}
           <StockChart
             series={[
