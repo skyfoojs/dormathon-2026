@@ -34,10 +34,6 @@ const STAGE_LABEL: Record<string, string> = {
   raising_orders: "Raising purchase orders",
 };
 
-export function isActive(run: SyncRun): boolean {
-  return run.status === "running" || run.status === "queued";
-}
-
 function duration(run: SyncRun): string {
   if (!run.finished_at) return "In progress";
   const seconds = Math.round((Date.parse(run.finished_at) - Date.parse(run.started_at)) / 1000);

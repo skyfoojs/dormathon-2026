@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { NAV_ITEMS, NAV_SECONDARY_ITEMS } from "@/lib/nav";
+import { LastSyncLink } from "@/components/layout/LastSyncLink";
 
 export function Sidebar() {
   const [expanded, setExpanded] = React.useState(false);
@@ -93,11 +94,7 @@ export function Sidebar() {
           ))}
         </nav>
 
-        {expanded ? (
-          <Link href="/predictions" className="px-2 text-sm font-semibold text-navy">
-            Last sync 34 min ago
-          </Link>
-        ) : null}
+        {expanded ? <LastSyncLink /> : null}
       </aside>
     </>
   );

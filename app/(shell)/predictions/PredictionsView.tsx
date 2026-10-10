@@ -7,15 +7,14 @@ import { RefreshCw } from "lucide-react";
 import { ErrorBanner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { SyncRunsCard, isActive, type RunFilter } from "@/components/predictions/SyncRunsCard";
+import { SyncRunsCard, type RunFilter } from "@/components/predictions/SyncRunsCard";
 import { ForecastModeSwitch, type ForecastMode } from "@/components/predictions/ForecastModeSwitch";
 import { OverallForecastCard } from "@/components/predictions/OverallForecastCard";
 import { AlgorithmicForecast } from "@/components/predictions/AlgorithmicForecast";
 import { AiForecast } from "@/components/predictions/AiForecast";
 import * as api from "@/lib/api/resources";
 import type { RunCouncil, SyncRunFilter, SyncScope } from "@/lib/api/resources";
-
-const POLL_MS = 3000;
+import { SYNC_POLL_MS, isActive } from "@/lib/data/syncRuns";
 
 const SUBTITLE: Record<ForecastMode, string> = {
   ai: "When the models last read the outside world, what each one found, and what they suggest.",
@@ -47,7 +46,7 @@ export default function PredictionsView() {
   const runsQuery = useQuery({
     queryKey: ["sync-runs", apiFilter],
     queryFn: () => api.getSyncRuns(apiFilter),
-    refetchInterval: (query) => (query.state.data?.some(isActive) ? POLL_MS : false),
+    refetchInterval: (query) => (query.state.data?.some(isActive) ? SYNC_POLL_MS : false),
   });
   const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
   const runs = runsQuery.data ?? [];
@@ -57,7 +56,7 @@ export default function PredictionsView() {
     queryKey: ["run-council", runId],
     queryFn: () => api.getRunCouncil(runId as number),
     enabled: runId !== null,
-    refetchInterval: (query) => (query.state.data && isActive(query.state.data.run) ? POLL_MS : false),
+    refetchInterval: (query) => (query.state.data && isActive(query.state.data.run) ? SYNC_POLL_MS : false),
   });
   const council = councilQuery.data;
   const runStatus = council?.run.status;
