@@ -1,7 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { PREDICTION_RUNS, type PredictionRunSummary } from "@/lib/mock/predictionRuns";
+import {
+  PREDICTION_RUNS,
+  meanConfidence,
+  type PredictionRunSummary,
+  type RunConfidences,
+} from "@/lib/mock/predictionRuns";
 
 type PredictionsContextValue = {
   runs: PredictionRunSummary[];
@@ -19,17 +24,19 @@ export function PredictionsProvider({ children }: { children: React.ReactNode })
   const [selectedRunId, setSelectedRunId] = React.useState(PREDICTION_RUNS[0].id);
 
   const syncNow = React.useCallback(() => {
-    const id = `run-manual-${manualRunCounter++}`;
+    const confidences: RunConfidences = [86, 72, 93];
+    const id = `2026-10-10-1435-manual-${manualRunCounter++}`;
     const newRun: PredictionRunSummary = {
       id,
       facilityId: 1,
       ranAtLabel: "Just now",
-      ranAtClock: "Now",
+      ranAtClock: "14:35",
       durationLabel: "43 s",
       trigger: "Manual",
       status: "OK",
-      riskScore: 80,
-      warningsRaised: 1,
+      confidences,
+      riskScore: meanConfidence(confidences),
+      warningsRaised: 6,
     };
     setRuns((prev) => [newRun, ...prev]);
     setSelectedRunId(id);

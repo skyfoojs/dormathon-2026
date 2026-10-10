@@ -75,6 +75,26 @@ const TUCK_AT = COLLAPSE_AT + 900; // then slide back to the edge
 
 type Beat = { at: number; run: () => void };
 
+declare global {
+  interface Window {
+    __aegiIntroPlayed?: boolean;
+  }
+}
+
+// Stored on `window`, not as component or module state: a plain module-level
+// variable isn't reliable here because Next's client-side router can evict
+// and re-fetch a route's JS (re-running this module from scratch) when you
+// navigate away and back, which defeated an earlier attempt at this. `window`
+// itself is the one thing guaranteed to survive for as long as the tab does,
+// and only a true reload (soft or hard) ever recreates it - exactly the
+// "only replay on a real refresh" behavior asked for.
+function hasPlayedIntroThisPageLoad(): boolean {
+  return typeof window !== "undefined" && window.__aegiIntroPlayed === true;
+}
+function markIntroPlayed() {
+  if (typeof window !== "undefined") window.__aegiIntroPlayed = true;
+}
+
 export function AegiAvatar({
   pending,
   sample,
@@ -85,7 +105,7 @@ export function AegiAvatar({
   reviewHref: string;
 }) {
   const [dismissed, setDismissed] = React.useState(false);
-  const [playingIntro, setPlayingIntro] = React.useState(true);
+  const [playingIntro, setPlayingIntro] = React.useState(() => !hasPlayedIntroThisPageLoad());
   const [appeared, setAppeared] = React.useState(false); // past the 700ms jump-out
   const [hovering, setHovering] = React.useState(false);
   const [bubbleCount, setBubbleCount] = React.useState(0);
@@ -102,6 +122,12 @@ export function AegiAvatar({
   // the second (real) setup from ever rescheduling them, leaving her stuck
   // in her pre-animation state forever - which is exactly what happened.
   React.useEffect(() => {
+    // Already played earlier this page load (this is a client-side nav back
+    // to the Dashboard, not a fresh load): rest tucked, ready for hover,
+    // skip the whole intro.
+    if (!playingIntro) return;
+    markIntroPlayed();
+
     const activeTimers: ReturnType<typeof setTimeout>[] = [];
     timers.current = activeTimers;
     const after = (ms: number, run: () => void) => activeTimers.push(setTimeout(run, ms));
@@ -160,6 +186,10 @@ export function AegiAvatar({
     beats.forEach((b) => after(b.at, b.run));
 
     return () => activeTimers.forEach(clearTimeout);
+    // Only the mount-time value of playingIntro matters here (whether this
+    // particular mount should play the intro at all); it's never meant to
+    // re-run when playingIntro later flips to false at the end of the intro.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function dismiss() {

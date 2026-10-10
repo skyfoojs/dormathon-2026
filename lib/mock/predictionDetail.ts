@@ -1,6 +1,5 @@
 import type { ProvenanceKind } from "@/components/ui/Tag";
-import { PREDICTION_RUNS, type PredictionRunSummary } from "@/lib/mock/predictionRuns";
-import { ITEMS } from "@/lib/db/seed";
+import type { PredictionRunSummary } from "@/lib/mock/predictionRuns";
 
 export type RunStep = {
   id: string;
@@ -9,6 +8,8 @@ export type RunStep = {
   detail: string;
   finding: string;
   provenance: ProvenanceKind;
+  // The closing "drafting the answer" step: part of the trail, not evidence.
+  draft?: boolean;
 };
 
 export type RunModelId = "demand" | "external" | "supply";
@@ -20,17 +21,18 @@ export type RunModel = {
   role: "Investigator" | "Source" | "Skeptic";
   vote: "YES" | "NO";
   confidence: number;
-  outcome: string;
   reasoning: string;
   supports: string;
   insufficient: string;
+  sources: string[];
   steps: RunStep[];
 };
 
 export type RunSourceRow = {
   name: string;
+  note: string;
   provenance: ProvenanceKind;
-  status: "Read" | "Failed" | "Stale";
+  status: "Read" | "Failed";
 };
 
 export type RunChangeRow = {
@@ -39,8 +41,8 @@ export type RunChangeRow = {
 };
 
 export type SuggestedStockRow = {
-  itemId: number;
   itemName: string;
+  why: string;
   internal: number;
   externalEffect: number;
   orderByLabel: string;
@@ -50,6 +52,7 @@ export type PredictionRunDetail = {
   runId: string;
   claim: string;
   consensusLabel: string;
+  consensusSummary: string;
   whatToDo: string;
   models: RunModel[];
   sources: RunSourceRow[];
@@ -57,220 +60,152 @@ export type PredictionRunDetail = {
   suggestedStock: SuggestedStockRow[];
 };
 
-const DEMAND_STEPS: Omit<RunStep, "id">[] = [
+type ModelSeed = Omit<RunModel, "vote" | "confidence" | "steps"> & { steps: Omit<RunStep, "id">[] };
+
+// Synthetic data: one illustrative panel run. Bracketed values are
+// placeholders for outside sources that are not connected yet.
+const MODEL_SEEDS: ModelSeed[] = [
   {
-    icon: "page",
-    label: "Read weekly_inventory",
-    detail: "Closing stock, issued quantity and reorder level for this item at this facility.",
-    finding: "Issued quantity has been above the 6-week average for the last 3 weeks.",
-    provenance: "database",
+    id: "demand",
+    name: "Demand model",
+    version: "internal-trend-v1 · sample",
+    role: "Investigator",
+    reasoning:
+      "The last count is far below the reorder level of 100 and the usual issue is 70 a week, so cover is about 0.1 weeks. Only an on-time delivery avoids a stock-out.",
+    supports: "Is cover shorter than the delivery gap? Yes, 0.1 weeks of cover against a 7-day lead time.",
+    insufficient: "Will demand drop this week? No sign of it in the last 6 weeks.",
+    sources: ["weekly_inventory", "items"],
+    steps: [
+      { icon: "search", label: "Read weekly issue history", detail: "weekly_inventory, Ipratropium 0.5mg nebule, last 6 weeks", finding: "Mean issue 70 a week, spread about 8. No week above 82.", provenance: "database" },
+      { icon: "page", label: "Read 14 weekly stock rows", detail: "Closing stock, receipts and reorder level for the item", finding: "7 on hand at the last count, reorder level 100.", provenance: "database" },
+      { icon: "search", label: "Simulated 300 stock paths", detail: "Weekly issue with spread, a 3-week delivery cycle, PO-1043 arriving today", finding: "86 percent of paths reach zero before 16 Oct if the delivery slips.", provenance: "model-output" },
+      { icon: "page", label: "Checked the series for typing errors", detail: "Median absolute deviation over the 14 weeks", finding: "No outliers for this item.", provenance: "model-output" },
+      { icon: "page", label: "Drafting the answer", detail: "Simulation and checks", finding: "YES. Main driver is the low opening stock.", provenance: "model-output", draft: true },
+    ],
   },
   {
-    icon: "search",
-    label: "Compute 6-week issue trend",
-    detail: "Mean and trend of weekly issued quantity over the trailing 6 weeks.",
-    finding: "Trend is rising, consistent with the item's recent weeks of cover.",
-    provenance: "model-output",
+    id: "external",
+    name: "External signal model",
+    version: "external-scan-v1 · sample",
+    role: "Source",
+    reasoning:
+      "Outside signals add modest upward pressure on respiratory items. They do not change the answer alone. This view uses placeholders until real sources are connected.",
+    supports: "Is respiratory demand likely to rise? [ILI RATE] is [TREND] per [SOURCE].",
+    insufficient: "Is the haze effect large? Haze is Moderate and tracks issue only weakly in the sample (r about 0.26).",
+    sources: ["[SOURCE 1]", "[SOURCE 2]", "[SOURCE 3]"],
+    steps: [
+      { icon: "search", label: "Searched (support): influenza-like illness trend", detail: '"[SOURCE] influenza-like illness [REGION] [WEEK]"', finding: "[ILI RATE], [TREND]. Placeholder until a source is chosen.", provenance: "public-evidence" },
+      { icon: "page", label: "Opened 2 pages: [SOURCE 1], [SOURCE 2]", detail: "Both pages from the support search", finding: "Both report [TREND]. Assumed +10 percent effect on respiratory items.", provenance: "scenario-assumption" },
+      { icon: "search", label: "Searched (challenge): haze outlook", detail: '"[SOURCE] haze API outlook [MONTH]"', finding: "Database shows API 57 (Moderate). [OUTLOOK] pending.", provenance: "public-evidence" },
+      { icon: "page", label: "Opened 1 page: [SOURCE 3]", detail: "Top page from the challenge search", finding: "No strong contradiction found.", provenance: "public-evidence" },
+      { icon: "page", label: "Drafting the answer", detail: "Support and challenge findings", finding: "YES, with lower confidence because sources are placeholders.", provenance: "model-output", draft: true },
+    ],
   },
   {
-    icon: "search",
-    label: "Compare to reorder level",
-    detail: "Latest closing stock against the facility's saved reorder level.",
-    finding: "Closing stock is at or below the reorder level.",
-    provenance: "database",
-  },
-  {
-    icon: "search",
-    label: "Check for anomalies",
-    detail: "Unusually large single-week swings in issued or received quantity.",
-    finding: "No anomalies found in the trailing weeks.",
-    provenance: "model-output",
-  },
-  {
-    icon: "page",
-    label: "Estimate days to stockout",
-    detail: "Projects closing stock forward at the current issue trend.",
-    finding: "Projected to breach zero within the next 7 to 10 days on current trend.",
-    provenance: "model-output",
+    id: "supply",
+    name: "Supply model",
+    version: "supply-risk-v1 · sample",
+    role: "Skeptic",
+    reasoning:
+      "The only incoming stock is PO-1043, due today from a supplier that already has a late order open. If it slips, the ward runs out.",
+    supports: "Is delivery guaranteed? No, 1 of 3 recent orders from this supplier was late.",
+    insufficient: "Is there a second source? None is recorded for this item.",
+    sources: ["purchase_orders", "suppliers", "batches"],
+    steps: [
+      { icon: "search", label: "Queried open purchase orders", detail: "purchase_orders for the item, status open", finding: "PO-1043, 600 nebules, due today, Nusantara Medicines.", provenance: "database" },
+      { icon: "page", label: "Read supplier lead time and history", detail: "suppliers and their open orders", finding: "Lead time 7 days. PO-1042 from the same supplier is 2 days late.", provenance: "database" },
+      { icon: "search", label: "Challenged: does PO-1043 arrive in time?", detail: "Late-delivery history for this supplier", finding: "Unclear. 1 of 3 recent orders was late.", provenance: "model-output" },
+      { icon: "page", label: "Checked batches for other stock", detail: "batches for the item", finding: "No other lot is recorded.", provenance: "database" },
+      { icon: "page", label: "Drafting the answer", detail: "Order, supplier and batch findings", finding: "YES. The risk rests on one delivery.", provenance: "model-output", draft: true },
+    ],
   },
 ];
 
-const EXTERNAL_STEPS: Omit<RunStep, "id">[] = [
-  {
-    icon: "page",
-    label: "Read haze_api_weekly",
-    detail: "Weekly haze API average for this facility.",
-    finding: "Haze API has risen for 3 consecutive weeks.",
-    provenance: "database",
-  },
-  {
-    icon: "search",
-    label: "Check API trend",
-    detail: "Direction and rate of change of the haze API reading.",
-    finding: "Trend is upward, now in the Moderate category.",
-    provenance: "model-output",
-  },
-  {
-    icon: "search",
-    label: "Cross-reference respiratory items",
-    detail: "Whether this item is tagged respiratory-relevant.",
-    finding: "Item is respiratory-relevant; haze readings are a plausible demand driver.",
-    provenance: "model-output",
-  },
-  {
-    icon: "page",
-    label: "Check COVID-19 activity",
-    detail: "Public health reporting for COVID-19 activity in this area.",
-    finding: "[SOURCE] not yet connected. Placeholder shown instead of a figure.",
-    provenance: "public-evidence",
-  },
-  {
-    icon: "page",
-    label: "Check influenza-like illness rate",
-    detail: "Public health reporting for ILI consultation rate.",
-    finding: "[ILI RATE] not yet connected. Placeholder shown instead of a figure.",
-    provenance: "public-evidence",
-  },
-];
+const HAZE: RunSourceRow = { name: "Haze API, weekly rows", note: "14 weekly rows. Latest API 57 (Moderate).", provenance: "database", status: "Read" };
+const COVID_OK: RunSourceRow = { name: "COVID-19 activity", note: "[SOURCE] read. Latest value [POSITIVITY OR CASES], trend [TREND].", provenance: "public-evidence", status: "Read" };
+const ILI_OK: RunSourceRow = { name: "Influenza-like illness", note: "[SOURCE] read. Latest value [ILI RATE], trend [TREND].", provenance: "public-evidence", status: "Read" };
+const COVID_FAILED: RunSourceRow = { name: "COVID-19 activity", note: "Request timed out after 30 seconds. The value from 08:00 was reused and marked stale.", provenance: "public-evidence", status: "Failed" };
+const ALL_SOURCES = [HAZE, COVID_OK, ILI_OK];
 
-const SUPPLY_STEPS: Omit<RunStep, "id">[] = [
-  {
-    icon: "page",
-    label: "Read purchase_orders",
-    detail: "Open and recent orders for this item at this facility.",
-    finding: "At least one open order exists; its timing is checked next.",
-    provenance: "database",
-  },
-  {
-    icon: "search",
-    label: "Check expected receipt dates",
-    detail: "Whether any open order is due before the projected stockout date.",
-    finding: "No open order is due before the projected stockout date.",
-    provenance: "database",
-  },
-  {
-    icon: "search",
-    label: "Check supplier reliability",
-    detail: "The primary supplier's saved reliability score and lead time.",
-    finding: "Supplier reliability is within the normal range for this facility.",
-    provenance: "database",
-  },
-  {
-    icon: "search",
-    label: "Check batches for expiry",
-    detail: "Whether any on-hand batch is close to expiry and should be excluded.",
-    finding: "No batches for this item are close to expiry.",
-    provenance: "database",
-  },
-  {
-    icon: "page",
-    label: "Estimate replenishment timing",
-    detail: "Combines lead time and order timing into an expected restock date.",
-    finding: "Earliest realistic restock is after the projected stockout date.",
-    provenance: "model-output",
-  },
-];
+type RunFacets = { sources: RunSourceRow[]; changes: RunChangeRow[] };
 
-function withIds(steps: Omit<RunStep, "id">[], prefix: string): RunStep[] {
-  return steps.map((s, i) => ({ ...s, id: `${prefix}-${i + 1}` }));
-}
+const RUN_FACETS: Record<string, RunFacets> = {
+  "2026-10-10-1400-hourly": { sources: ALL_SOURCES, changes: [{ type: "No change", text: "No new external reading moved a forecast by more than 5 percent." }] },
+  "2026-10-10-1300-hourly": { sources: ALL_SOURCES, changes: [{ type: "No change", text: "Forecasts and warnings match the 12:12 run." }] },
+  "2026-10-10-1212-newinput": {
+    sources: ALL_SOURCES,
+    changes: [
+      { type: "Input", text: "PO-1044 adds 400 Oseltamivir capsules due 16 Oct." },
+      { type: "Cleared", text: "Oseltamivir cover warning cleared, the order covers the gap." },
+      { type: "Raised", text: "Single-source risk on Nusantara Medicines now covers 3 critical items." },
+    ],
+  },
+  "2026-10-10-1041-manual": {
+    sources: ALL_SOURCES,
+    changes: [
+      { type: "Raised", text: "Influenza-like illness reading rose. Oseltamivir and Salbutamol external effect increased." },
+      { type: "Raised", text: "Oseltamivir cover fell below one week." },
+    ],
+  },
+  "2026-10-10-0900-hourly": {
+    sources: [HAZE, COVID_FAILED, ILI_OK],
+    changes: [{ type: "Stale", text: "COVID-19 value reused from 08:00. The External signal model is marked lower confidence." }],
+  },
+};
 
-function clampConfidence(n: number): number {
-  return Math.min(98, Math.max(55, Math.round(n)));
-}
+// Runs without their own entry above, including ones started with Sync now.
+const DEFAULT_FACETS: RunFacets = {
+  sources: ALL_SOURCES,
+  changes: [{ type: "No change", text: "No change in forecasts." }],
+};
+
+const WEEKS_PER_MONTH = 4.3;
+
+const SUGGESTED_STOCK: SuggestedStockRow[] = [
+  { itemName: "Salbutamol 100mcg MDI inhaler", weekly: 65, externalEffect: 0.1, why: "Respiratory. Haze Moderate, influenza-like illness rising.", orderByLabel: "12 Oct" },
+  { itemName: "Amoxicillin-clavulanate 625mg", weekly: 410, externalEffect: 0.05, why: "Antibiotic. Secondary infections follow respiratory waves.", orderByLabel: "[DATE]" },
+  { itemName: "Dexamethasone 4mg/mL injection", weekly: 70, externalEffect: 0.05, why: "Steroid. Severe respiratory cases.", orderByLabel: "[DATE]" },
+  { itemName: "N95 respirator", weekly: 900, externalEffect: 0.1, why: "PPE. Demand follows haze and outbreak alerts.", orderByLabel: "[DATE]" },
+  { itemName: "Prednisolone 5mg tablet", weekly: 800, externalEffect: 0, why: "Steroid. No external link assumed. Lot LOT290217 expires 5 Nov.", orderByLabel: "[DATE]" },
+  { itemName: "Oseltamivir 75mg capsule", weekly: 150, externalEffect: 0.2, why: "Antiviral. Direct link to influenza activity.", orderByLabel: "[DATE]" },
+  { itemName: "Ipratropium 0.5mg nebule", weekly: 70, externalEffect: 0.1, why: "Respiratory. Critical, 7 on hand.", orderByLabel: "Today" },
+  { itemName: "Surgical mask, 3-ply", weekly: 2500, externalEffect: 0.05, why: "PPE. Weak haze link in the sample.", orderByLabel: "[DATE]" },
+].map(({ weekly, ...row }) => ({ ...row, internal: Math.round(weekly * WEEKS_PER_MONTH) }));
+
+const CLAIM_ITEM = "Ipratropium 0.5mg nebule";
 
 export function buildRunDetail(run: PredictionRunSummary): PredictionRunDetail {
-  const item = ITEMS[(Number(run.id.replace(/\D/g, "")) || 0) % ITEMS.length];
-  const itemName = run.id === "run-104" ? "Ipratropium 0.5mg nebule" : item.item_name;
+  const models: RunModel[] = MODEL_SEEDS.map((seed, modelIndex) => {
+    const confidence = run.confidences[modelIndex];
+    const stale = run.staleExternal === true && seed.id === "external";
+    return {
+      ...seed,
+      confidence,
+      vote: confidence >= 50 ? "YES" : "NO",
+      reasoning: stale ? `${seed.reasoning} The COVID-19 value used here is stale.` : seed.reasoning,
+      steps: seed.steps.map((step, stepIndex) => ({
+        ...step,
+        id: `${seed.id}-${stepIndex + 1}`,
+        finding:
+          stale && stepIndex === 1
+            ? `Source timed out. Last good value reused and marked stale. ${step.finding}`
+            : step.finding,
+      })),
+    };
+  });
 
-  const demandConfidence = clampConfidence(run.riskScore + 7);
-  const externalConfidence = clampConfidence(run.riskScore - 9);
-  const supplyConfidence = clampConfidence(run.riskScore + 1);
-
-  const models: RunModel[] = [
-    {
-      id: "demand",
-      name: "Demand model",
-      version: "v1.3",
-      role: "Investigator",
-      vote: "YES",
-      confidence: demandConfidence,
-      outcome: `${itemName} will breach its reorder level within 7 days.`,
-      reasoning:
-        "Issued quantity has risen over the trailing 6 weeks while closing stock has not been replenished in time.",
-      supports: "weekly_inventory shows a consistent downward trend in closing stock.",
-      insufficient: "No single week's data alone confirms the trend; the 6-week window is what drives this vote.",
-      steps: withIds(DEMAND_STEPS, "demand"),
-    },
-    {
-      id: "external",
-      name: "External signal model",
-      version: "v0.9",
-      role: "Source",
-      vote: "YES",
-      confidence: externalConfidence,
-      outcome: "Outside conditions make a demand spike more likely, though two sources are not yet connected.",
-      reasoning:
-        "Haze API has been rising for 3 weeks, a plausible driver for respiratory item demand. COVID-19 activity and ILI rate are not yet connected, so this vote carries lower confidence.",
-      supports: "haze_api_weekly shows a rising trend over the trailing 3 weeks.",
-      insufficient: "COVID-19 activity and influenza-like illness rate: no source connected yet.",
-      steps: withIds(EXTERNAL_STEPS, "external"),
-    },
-    {
-      id: "supply",
-      name: "Supply model",
-      version: "v1.1",
-      role: "Skeptic",
-      vote: "YES",
-      confidence: supplyConfidence,
-      outcome: "No open order will arrive before the projected stockout date.",
-      reasoning:
-        "Purchase orders and supplier lead times were checked against the projected stockout date; nothing resolves it in time.",
-      supports: "purchase_orders has no open order with an expected receipt date before the projected stockout.",
-      insufficient: "A same-day emergency order was not modelled; this model only reasons from saved lead times.",
-      steps: withIds(SUPPLY_STEPS, "supply"),
-    },
-  ];
-
-  const sources: RunSourceRow[] = [
-    { name: "weekly_inventory", provenance: "database", status: "Read" },
-    { name: "haze_api_weekly", provenance: "database", status: "Read" },
-    { name: "purchase_orders", provenance: "database", status: "Read" },
-    { name: "COVID-19 activity feed", provenance: "public-evidence", status: run.status === "Partial" ? "Failed" : "Stale" },
-    { name: "Influenza-like illness feed", provenance: "public-evidence", status: "Stale" },
-  ];
-
-  const changes: RunChangeRow[] =
-    run.id === "run-104"
-      ? [
-          { type: "Raised", text: "Risk score raised from 74 to 81 since the previous run." },
-          { type: "Input", text: "A new purchase order was saved for this facility, triggering this run." },
-          { type: "Stale", text: "COVID-19 activity feed could not be read; last good value reused." },
-        ]
-      : [{ type: "No change", text: "No material change since the previous run." }];
-
-  const suggestedStock: SuggestedStockRow[] = ITEMS.filter((i) => i.is_critical === 1).map((i, idx) => ({
-    itemId: i.item_id,
-    itemName: i.item_name,
-    internal: 200 + idx * 120,
-    externalEffect: [0.08, 0.04, 0.0, 0.12, 0.02][idx % 5],
-    orderByLabel: idx === 0 ? "Today" : `In ${idx + 2} days`,
-  }));
+  const yesCount = models.filter((m) => m.vote === "YES").length;
+  const facets = RUN_FACETS[run.id] ?? DEFAULT_FACETS;
 
   return {
     runId: run.id,
-    claim: `${itemName} will run out within 7 days.`,
-    consensusLabel: "Consensus · 3 of 3 models agree",
-    whatToDo: `Raise a purchase order for ${itemName} today. No open order currently covers the projected stockout date.`,
+    claim: `${CLAIM_ITEM} will run out within 7 days.`,
+    consensusLabel: `Consensus · ${yesCount} of ${models.length} models agree`,
+    consensusSummary: `${yesCount} of ${models.length} models say YES: ${CLAIM_ITEM} will run out within 7 days. The demand model sees low opening stock, the supply model sees one delivery that may slip, and outside signals add modest pressure.`,
+    whatToDo: "Confirm PO-1043 arrives today. Ask Selangor Pharma for a bridging 150.",
     models,
-    sources,
-    changes,
-    suggestedStock,
+    sources: facets.sources,
+    changes: facets.changes,
+    suggestedStock: SUGGESTED_STOCK,
   };
-}
-
-export function getRunDetail(runId: string): PredictionRunDetail | null {
-  const run = PREDICTION_RUNS.find((r) => r.id === runId);
-  if (!run) return null;
-  return buildRunDetail(run);
 }

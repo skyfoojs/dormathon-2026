@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DashboardKpiCard } from "@/components/dashboard/DashboardKpiCard";
 import { ReportStatusDonut } from "@/components/dashboard/ReportStatusDonut";
-import { PendingReportsCard } from "@/components/dashboard/PendingReportsCard";
+import { AutomatedOrdersCard } from "@/components/dashboard/AutomatedOrdersCard";
 import { ExpectedVsActualCard } from "@/components/dashboard/ExpectedVsActualCard";
 import { ReviewDialog } from "@/components/dashboard/ReviewDialog";
 import { AllReportsDialog } from "@/components/dashboard/AllReportsDialog";
@@ -14,10 +14,10 @@ import { AegiAvatar } from "@/components/dashboard/AegiAvatar";
 import { useFacility } from "@/components/providers/FacilityProvider";
 import * as api from "@/lib/api/resources";
 import { accuracyTheme, KPI_ICON_PATHS, KPI_THEME, NO_DATA_THEME } from "@/lib/data/kpiStyle";
+import { getPurchaseOrderRows, groupOrderRows } from "@/lib/data/inventory";
 import {
   getExpectedVsActualSeries,
   getItemsWellStockedKpi,
-  getPendingReports,
   getPoDeliveredKpi,
   getPredictionAccuracyKpi,
   getProductAccuracy,
@@ -26,9 +26,7 @@ import {
 import {
   isSampleReportId,
   SAMPLE_PENDING_COUNT,
-  SAMPLE_TOTAL_REPORTS,
   sampleExpectedVsActual,
-  samplePendingReports,
   sampleProductAccuracy,
   sampleReports,
   sampleStatusBreakdown,
@@ -63,7 +61,7 @@ function AegiHost({ facilityId }: { facilityId: number }) {
     ? SAMPLE_PENDING_COUNT
     : reports.filter((r) => r.status === "pending_approval").length;
 
-  return <AegiAvatar pending={pendingCount} sample={reportsAreSample} reviewHref="/warnings" />;
+  return <AegiAvatar pending={pendingCount} sample={reportsAreSample} reviewHref="/orders" />;
 }
 
 function DashboardViewContent({
@@ -84,6 +82,7 @@ function DashboardViewContent({
   >("all");
 
   const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
+  const suppliersQuery = useQuery({ queryKey: ["suppliers"], queryFn: api.getSuppliers });
   const weeklyInventoryQuery = useQuery({
     queryKey: ["weekly-inventory", facilityId],
     queryFn: () => api.getWeeklyInventory(facilityId),
@@ -177,15 +176,9 @@ function DashboardViewContent({
   const statusBreakdown = reportsAreSample
     ? sampleStatusBreakdown()
     : getReportStatusBreakdown(reports);
-  const pendingReports = reportsAreSample
-    ? samplePendingReports()
-    : getPendingReports(reports);
-  const pendingCount = reportsAreSample
-    ? SAMPLE_PENDING_COUNT
-    : reports.filter((r) => r.status === "pending_approval").length;
-  const totalReportsCount = reportsAreSample
-    ? SAMPLE_TOTAL_REPORTS
-    : reports.length;
+  const orders = groupOrderRows(
+    getPurchaseOrderRows(facilityId, purchaseOrders, items, suppliersQuery.data ?? []),
+  );
 
   const forecastsAreSample = forecasts.length === 0;
   const productAccuracy = forecastsAreSample
@@ -199,10 +192,6 @@ function DashboardViewContent({
   const chartPoints = forecastsAreSample
     ? sampleExpectedVsActual(selectedItemId)
     : getExpectedVsActualSeries(forecasts, selectedItemId);
-
-  function openReview(report: Report) {
-    setReviewing(report);
-  }
 
   const todayLine = `${format(new Date(), "EEEE d MMMM yyyy")} · ${facilityName}`;
 
@@ -268,15 +257,7 @@ function DashboardViewContent({
           />
         </div>
         <div className="min-w-0 lg:col-span-2">
-          <PendingReportsCard
-            pending={pendingReports}
-            totalPending={pendingCount}
-            totalReports={totalReportsCount}
-            sample={reportsAreSample}
-            onReview={openReview}
-            onResetSample={() => resetMutation.mutate()}
-            resetting={resetMutation.isPending}
-          />
+          <AutomatedOrdersCard orders={orders} facilityName={facilityName} />
         </div>
       </div>
 

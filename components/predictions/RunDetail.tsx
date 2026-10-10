@@ -3,13 +3,18 @@
 import * as React from "react";
 import { Card } from "@/components/ui/Card";
 import { Tag } from "@/components/ui/Tag";
-import { cn } from "@/lib/cn";
+import { Segmented } from "@/components/ui/Segmented";
 import { useReplay } from "@/components/predictions/useReplay";
 import { DetailLeftPanel } from "@/components/predictions/DetailLeftPanel";
 import { GraphView } from "@/components/predictions/GraphView";
 import { ChatView } from "@/components/predictions/ChatView";
 import type { PredictionRunDetail } from "@/lib/mock/predictionDetail";
 import type { PredictionRunSummary } from "@/lib/mock/predictionRuns";
+
+const VIEW_OPTIONS: { value: "chat" | "graph"; label: string }[] = [
+  { value: "chat", label: "Chat" },
+  { value: "graph", label: "Graph" },
+];
 
 export function RunDetail({ run, detail }: { run: PredictionRunSummary; detail: PredictionRunDetail }) {
   const [view, setView] = React.useState<"graph" | "chat">("graph");
@@ -24,7 +29,7 @@ export function RunDetail({ run, detail }: { run: PredictionRunSummary; detail: 
   }
 
   return (
-    <Card className="flex flex-col gap-5 p-6">
+    <Card as="section" className="flex min-w-0 flex-col gap-5 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-baseline gap-3">
           <h2 className="text-xl font-semibold">
@@ -32,23 +37,7 @@ export function RunDetail({ run, detail }: { run: PredictionRunSummary; detail: 
           </h2>
           <Tag tone={run.status === "OK" ? "blue" : "amber"}>{run.status}</Tag>
         </div>
-        <div role="tablist" aria-label="Run view" className="flex">
-          {(["chat", "graph"] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              role="tab"
-              aria-selected={view === v}
-              onClick={() => setView(v)}
-              className={cn(
-                "min-h-11 border-[1.5px] px-4 text-sm font-semibold capitalize transition-colors duration-150 first:rounded-l-md last:rounded-r-md first:border-r-0 focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-blue-light",
-                view === v ? "border-navy bg-navy text-white" : "border-line text-ink hover:bg-blue-tint",
-              )}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
+        <Segmented label="Run view" options={VIEW_OPTIONS} value={view} onChange={setView} />
       </div>
 
       <div className="flex flex-col gap-5 lg:flex-row">
