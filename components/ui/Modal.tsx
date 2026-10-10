@@ -4,7 +4,9 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { cn, focusRingClasses } from "@/lib/cn";
 
-const SIZE_CLASSES = {
+export type ModalSize = "md" | "lg";
+
+const SIZE_CLASSES: Record<ModalSize, string> = {
   md: "max-w-2xl",
   lg: "max-w-4xl",
 };
@@ -19,7 +21,7 @@ export function Modal({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: React.ReactNode;
-  size?: keyof typeof SIZE_CLASSES;
+  size?: ModalSize;
   children: React.ReactNode;
 }) {
   return (
@@ -29,11 +31,11 @@ export function Modal({
         <Dialog.Content
           aria-describedby={undefined}
           className={cn(
-            "fixed inset-8 z-50 m-auto flex h-fit max-h-full w-full flex-col gap-4 overflow-hidden rounded-card border border-line bg-card p-6 shadow-lg focus:outline-none",
+            "fixed inset-4 z-50 m-auto flex h-fit max-h-full w-auto flex-col gap-4 overflow-hidden rounded-card border border-line bg-card p-6 shadow-lg focus:outline-none sm:inset-8",
             SIZE_CLASSES[size],
           )}
         >
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-4">
             <Dialog.Title className="text-lg font-semibold">{title}</Dialog.Title>
             <Dialog.Close asChild>
               <button

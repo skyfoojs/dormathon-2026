@@ -71,10 +71,15 @@ export type WeeklyInventory = {
 // Matches the real database's values, confirmed against live data:
 // "In transit" and "Delivered" are the only values currently in use;
 // "Cancelled" is allowed by the column but not currently used.
+// "Pending" is an order waiting for the supplier to review it. It is
+// read-only in the app and does not count as incoming stock.
 export type PurchaseOrderStatus =
+  | "Pending"
   | "In transit"
   | "Delivered"
   | "Cancelled";
+
+export type PurchaseOrderCreator = "Manual" | "AiGIS";
 
 export type PurchaseOrder = {
   po_id: number;
@@ -88,6 +93,12 @@ export type PurchaseOrder = {
   actual_receipt_date: string | null; // ISO date
   qty_received: number | null;
   status: PurchaseOrderStatus;
+  // Not in the database yet. Until the column is added, rows arrive without
+  // it and are treated as "Manual".
+  created_by?: PurchaseOrderCreator | null;
+  // Groups the rows that belong to one PO document. Null when the order has
+  // no document, in which case the row is its own single line item.
+  po_doc_id?: number | null;
 };
 
 export type Batch = {
@@ -149,4 +160,11 @@ export type DemandForecast = {
   wma_qty: number | null;
   avg_qty: number | null;
   actual_qty: number | null;
+};
+
+// A free-text rule the facility wants followed. Read by a separate module.
+export type Policy = {
+  policy_id: number;
+  description: string;
+  created_at: string; // ISO timestamp, set by the database
 };

@@ -15,3 +15,8 @@ export function formatDueLabel(isoDate: string): string {
   if (days > 0) return `Due in ${days} day${days === 1 ? "" : "s"}`;
   return `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} late`;
 }
+
+// For database timestamps, shown in the viewer's local time.
+export function formatDateTime(isoTimestamp: string): string {
+  return format(parseISO(isoTimestamp), "d MMM yyyy, HH:mm");
+}

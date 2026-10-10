@@ -74,6 +74,40 @@ export function getPurchaseOrderRows(
     }));
 }
 
+// One order as the Orders page shows it. Each purchase_orders row is a line
+// item; rows sharing a po_doc_id belong to the same order, and a row with no
+// document is an order with a single line.
+export type OrderRow = {
+  // The anchor line (lowest po_id). Its id is the order's PO number, and its
+  // supplier, dates and status stand for the whole order.
+  po: PurchaseOrder;
+  supplierName: string;
+  lines: PurchaseOrderRow[];
+  qtyOrdered: number;
+  totalValue: number;
+};
+
+export function groupOrderRows(rows: PurchaseOrderRow[]): OrderRow[] {
+  const groups = new Map<string, PurchaseOrderRow[]>();
+  for (const row of rows) {
+    const docId = row.po.po_doc_id;
+    const key = docId === null || docId === undefined ? `po:${row.po.po_id}` : `doc:${docId}`;
+    const lines = groups.get(key);
+    if (lines) lines.push(row);
+    else groups.set(key, [row]);
+  }
+  return [...groups.values()].map((unsorted) => {
+    const lines = [...unsorted].sort((a, b) => a.po.po_id - b.po.po_id);
+    return {
+      po: lines[0].po,
+      supplierName: lines[0].supplierName,
+      lines,
+      qtyOrdered: lines.reduce((sum, l) => sum + l.po.qty_ordered, 0),
+      totalValue: lines.reduce((sum, l) => sum + l.po.qty_ordered * l.po.unit_cost_myr, 0),
+    };
+  });
+}
+
 export type SupplierRiskLevel = "Late delivery" | "Concentration" | "Single source" | "Low";
 
 export type SupplierRow = {

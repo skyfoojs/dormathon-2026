@@ -121,7 +121,7 @@ export function PreviousRunsCard({
                 aria-label={`Page ${n + 1}`}
                 aria-current={n === page ? "page" : undefined}
                 onClick={() => setRequestedPage(n)}
-                className="w-11 px-0"
+                className="min-w-11"
               >
                 {n + 1}
               </Button>

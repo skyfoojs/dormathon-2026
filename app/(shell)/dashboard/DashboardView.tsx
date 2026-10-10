@@ -5,16 +5,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { ReportStatusDonut } from "@/components/dashboard/ReportStatusDonut";
-import { PendingReportsCard } from "@/components/dashboard/PendingReportsCard";
+import { AutomatedOrdersCard } from "@/components/dashboard/AutomatedOrdersCard";
 import { ExpectedVsActualCard } from "@/components/dashboard/ExpectedVsActualCard";
 import { ReviewDialog } from "@/components/dashboard/ReviewDialog";
 import { AllReportsDialog } from "@/components/dashboard/AllReportsDialog";
 import { useFacility } from "@/components/providers/FacilityProvider";
 import * as api from "@/lib/api/resources";
+import { getPurchaseOrderRows, groupOrderRows } from "@/lib/data/inventory";
 import {
   getExpectedVsActualSeries,
   getItemsWellStockedKpi,
-  getPendingReports,
   getPoDeliveredKpi,
   getPredictionAccuracyKpi,
   getProductAccuracy,
@@ -22,10 +22,7 @@ import {
 } from "@/lib/data/dashboardReports";
 import {
   isSampleReportId,
-  SAMPLE_PENDING_COUNT,
-  SAMPLE_TOTAL_REPORTS,
   sampleExpectedVsActual,
-  samplePendingReports,
   sampleProductAccuracy,
   sampleReports,
   sampleStatusBreakdown,
@@ -35,12 +32,12 @@ import type { Report, ReportStatus } from "@/lib/db/types";
 const DEFAULT_CHART_ITEM_ID = 1; // Salbutamol 100mcg MDI inhaler
 
 export default function DashboardView() {
-  const { facilityId } = useFacility();
+  const { facilityId, facility } = useFacility();
   if (facilityId === null) return null;
-  return <DashboardViewContent facilityId={facilityId} />;
+  return <DashboardViewContent facilityId={facilityId} facilityName={facility?.facility_name ?? ""} />;
 }
 
-function DashboardViewContent({ facilityId }: { facilityId: number }) {
+function DashboardViewContent({ facilityId, facilityName }: { facilityId: number; facilityName: string }) {
   const qc = useQueryClient();
   const [selectedItemId, setSelectedItemId] = React.useState<number>(
     DEFAULT_CHART_ITEM_ID,
@@ -52,6 +49,7 @@ function DashboardViewContent({ facilityId }: { facilityId: number }) {
   >("all");
 
   const itemsQuery = useQuery({ queryKey: ["items"], queryFn: api.getItems });
+  const suppliersQuery = useQuery({ queryKey: ["suppliers"], queryFn: api.getSuppliers });
   const weeklyInventoryQuery = useQuery({
     queryKey: ["weekly-inventory", facilityId],
     queryFn: () => api.getWeeklyInventory(facilityId),
@@ -142,15 +140,9 @@ function DashboardViewContent({ facilityId }: { facilityId: number }) {
   const statusBreakdown = reportsAreSample
     ? sampleStatusBreakdown()
     : getReportStatusBreakdown(reports);
-  const pendingReports = reportsAreSample
-    ? samplePendingReports()
-    : getPendingReports(reports);
-  const pendingCount = reportsAreSample
-    ? SAMPLE_PENDING_COUNT
-    : reports.filter((r) => r.status === "pending_approval").length;
-  const totalReportsCount = reportsAreSample
-    ? SAMPLE_TOTAL_REPORTS
-    : reports.length;
+  const orders = groupOrderRows(
+    getPurchaseOrderRows(facilityId, purchaseOrders, items, suppliersQuery.data ?? []),
+  );
 
   const forecastsAreSample = forecasts.length === 0;
   const productAccuracy = forecastsAreSample
@@ -164,10 +156,6 @@ function DashboardViewContent({ facilityId }: { facilityId: number }) {
   const chartPoints = forecastsAreSample
     ? sampleExpectedVsActual(selectedItemId)
     : getExpectedVsActualSeries(forecasts, selectedItemId);
-
-  function openReview(report: Report) {
-    setReviewing(report);
-  }
 
   return (
     <>
@@ -235,15 +223,7 @@ function DashboardViewContent({ facilityId }: { facilityId: number }) {
           />
         </div>
         <div className="min-w-0 lg:col-span-2">
-          <PendingReportsCard
-            pending={pendingReports}
-            totalPending={pendingCount}
-            totalReports={totalReportsCount}
-            sample={reportsAreSample}
-            onReview={openReview}
-            onResetSample={() => resetMutation.mutate()}
-            resetting={resetMutation.isPending}
-          />
+          <AutomatedOrdersCard orders={orders} facilityName={facilityName} />
         </div>
       </div>
 

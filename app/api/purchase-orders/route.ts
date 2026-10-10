@@ -14,7 +14,7 @@ const createPurchaseOrderSchema = z.object({
   expected_receipt_date: z.string().min(1),
   actual_receipt_date: z.string().nullable().optional(),
   qty_received: z.coerce.number().int().min(0).nullable().optional(),
-  status: z.enum(["In transit", "Delivered", "Cancelled"]),
+  status: z.enum(["Pending", "In transit", "Delivered", "Cancelled"]),
 });
 
 const listQuerySchema = z.object({
@@ -46,7 +46,12 @@ export async function POST(req: Request) {
 async function listPurchaseOrders(pagination: { page: number; pageSize: number }, facilityId?: number) {
   const db = getDb();
   const [from, to] = toRange(pagination);
-  let query = db.from("purchase_orders").select("*", { count: "exact" }).order("order_date", { ascending: false });
+  // po_id breaks ties so rows never repeat or go missing between pages.
+  let query = db
+    .from("purchase_orders")
+    .select("*", { count: "exact" })
+    .order("order_date", { ascending: false })
+    .order("po_id", { ascending: false });
   if (facilityId) query = query.eq("facility_id", facilityId);
   const { data, count, error } = await query.range(from, to);
   if (error) throw error;
