@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { NAV_ITEMS, NAV_SECONDARY_ITEMS } from "@/lib/nav";
-import { LastSyncLink } from "@/components/layout/LastSyncLink";
 
 export function Sidebar() {
   const [expanded, setExpanded] = React.useState(false);
@@ -94,7 +93,6 @@ export function Sidebar() {
           ))}
         </nav>
 
-        {expanded ? <LastSyncLink /> : null}
       </aside>
     </>
   );

@@ -2,7 +2,7 @@
 
 import { DataTable } from "@/components/ui/DataTable";
 import { ListChecks } from "lucide-react";
-import { IconButton } from "@/components/ui/Button";
+import { Button, IconButton } from "@/components/ui/Button";
 import { RowActions } from "@/components/items/RowActions";
 import { Tag, type TagTone } from "@/components/ui/Tag";
 import { createTableColumnHelper } from "@/lib/table/features";
@@ -106,6 +106,9 @@ export function PurchaseOrdersTable({
         const label = `PO-${row.original.po.po_id}`;
         return (
           <div className="flex items-center gap-2">
+            <Button aria-label={`View details of ${label}`} onClick={() => onView(row.original)}>
+              View details
+            </Button>
             {row.original.po.status === "In transit" ? (
               <IconButton
                 variant="secondary"

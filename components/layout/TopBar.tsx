@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Truck } from "lucide-react";
 import { useFacility } from "@/components/providers/FacilityProvider";
 import { formatFacilitySubtitle } from "@/lib/data/facility";
+import { LastSyncLink } from "@/components/layout/LastSyncLink";
 
 export function TopBar() {
   const { facility } = useFacility();
@@ -24,6 +25,7 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
+        <LastSyncLink />
         <Link
           href="/orders"
           aria-label="Orders"
