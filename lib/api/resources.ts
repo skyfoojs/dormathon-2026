@@ -3,7 +3,6 @@ import type {
   Batch,
   DemandForecast,
   Facility,
-  HazeApiWeekly,
   Item,
   PurchaseOrder,
   Report,
@@ -14,6 +13,7 @@ import type {
 import type { ItemAccuracy } from "@/lib/forecast/accuracy";
 import type { Arrival, RestockTrigger, StockPoint } from "@/lib/forecast/runout";
 import type { UsageOutlook } from "@/lib/forecast/outlook";
+import type { HazeSummary } from "@/lib/haze";
 import type { ItemStockStatus } from "@/lib/orders/restockPlan";
 import type { SyncRun, SyncScope } from "@/lib/ai/sync";
 
@@ -294,24 +294,14 @@ export function getRunCouncil(syncRunId: number): Promise<RunCouncil> {
   return apiGet<RunCouncil>(`/api/sync-runs/${syncRunId}/council`);
 }
 
-export function getHaze(facilityId: number): Promise<HazeApiWeekly[]> {
-  return apiGet<HazeApiWeekly[]>(`/api/haze?facility_id=${facilityId}`);
+export function getHaze(): Promise<HazeSummary | null> {
+  return apiGet<HazeSummary | null>("/api/haze");
 }
 
 export function getBatches(facilityId: number): Promise<Batch[]> {
   return apiGet<Batch[]>(`/api/batches?facility_id=${facilityId}`);
 }
 
-export type LiveHaze = {
-  apiAvg: number;
-  category: HazeApiWeekly["api_category"];
-  observedAt: string | null;
-  locationLabel: string;
-};
-
-export function getLiveHaze(): Promise<LiveHaze> {
-  return apiGet<LiveHaze>("/api/haze-live");
-}
 
 export function getReports(facilityId: number, status?: ReportStatus): Promise<Report[]> {
   const params = new URLSearchParams({ facility_id: String(facilityId) });

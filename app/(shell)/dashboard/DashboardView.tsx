@@ -11,6 +11,7 @@ import { PredictionAccuracyCard } from "@/components/dashboard/PredictionAccurac
 import { AegiAvatar } from "@/components/dashboard/AegiAvatar";
 import { useFacility } from "@/components/providers/FacilityProvider";
 import * as api from "@/lib/api/resources";
+import { formatShortDate } from "@/lib/data/dates";
 import { buildOverallAccuracy } from "@/lib/forecast/accuracy";
 import {
   accuracyTheme,
@@ -93,9 +94,9 @@ function DashboardViewContent({
     queryKey: ["stock-status"],
     queryFn: api.getStockStatus,
   });
-  const liveHazeQuery = useQuery({
-    queryKey: ["haze-live"],
-    queryFn: api.getLiveHaze,
+  const hazeQuery = useQuery({
+    queryKey: ["haze"],
+    queryFn: api.getHaze,
   });
   const poQuery = useQuery({
     queryKey: ["purchase-orders", facilityId],
@@ -127,7 +128,7 @@ function DashboardViewContent({
   }
 
   const items = itemsQuery.data ?? [];
-  const liveHaze = liveHazeQuery.data ?? null;
+  const haze = hazeQuery.data?.latest ?? null;
   const purchaseOrders = poQuery.data ?? [];
 
   const poDelivered = getPoDeliveredKpi(purchaseOrders);
@@ -163,10 +164,10 @@ function DashboardViewContent({
       >
         <DashboardKpiCard
           label="Air pollution index"
-          value={liveHaze ? String(liveHaze.apiAvg) : "—"}
-          sub={liveHaze ? liveHaze.category : "Live reading unavailable."}
+          value={haze ? String(haze.aqi) : "—"}
+          sub={haze ? `${haze.category} · ${formatShortDate(haze.date)}` : "No haze reading yet."}
           iconPath={KPI_ICON_PATHS.air}
-          theme={liveHaze ? KPI_THEME.air : NO_DATA_THEME}
+          theme={haze ? KPI_THEME.air : NO_DATA_THEME}
           delayMs={0}
         />
         <DashboardKpiCard

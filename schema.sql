@@ -223,18 +223,8 @@ CREATE INDEX demand_forecasts_item_created_idx ON public.demand_forecasts (item_
 -- EXTERNAL NUMERIC TRACKERS (haze, covid, flu ...)
 -- =====================================================================
 
--- Original dataset. Weekly haze (Air Pollutant Index). May migrate into trackers.
-CREATE TABLE public.haze_api_weekly (
-  facility_id bigint NOT NULL,
-  week_start text NOT NULL,
-  api_avg bigint,                      -- average API that week
-  api_category text,                   -- Good | Moderate | Unhealthy
-  created_at timestamptz NOT NULL DEFAULT now(),  -- when the row was inserted
-  CONSTRAINT haze_api_weekly_pkey PRIMARY KEY (facility_id, week_start),
-  CONSTRAINT haze_api_weekly_facility_id_fkey FOREIGN KEY (facility_id) REFERENCES public.facilities(facility_id)
-);
-
 -- One row per external numeric data source. Dev hardcodes a fetcher per tracker.
+-- Only one tracker for now: "Haze (Air Pollutant Index)" (WAQI live US AQI, saved on every sync; replaced haze_api_weekly).
 CREATE TABLE public.trackers (
   tracker_id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   name text NOT NULL UNIQUE,
