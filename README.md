@@ -1,36 +1,153 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AiGIS: AI Guardian Intelligence System
 
-## Getting Started
+AiGIS is a hospital inventory risk and decision-support tool for a single facility. It forecasts how much of each medical item will be used, adjusts that forecast for outside news (disease outbreaks, supply disruptions), and raises purchase orders before stock runs out. Staff review every order it creates.
 
-First, run the development server:
+Built for Dormathon 2026.
+
+## What it does
+
+1. **Records stock daily**: issued quantity, unmet demand and closing stock per item.
+2. **Forecasts usage** with an arithmetic model (Holt trend plus a weighted moving average, with the day-of-week pattern removed). It predicts safety stock, a reorder point, and the dates stock will hit the reorder point and run out.
+3. **Reads outside news** from WHO Disease Outbreak News and the Malaysian Ministry of Health (MOH) press statements. An LLM screens each article for relevance to medical supply or demand.
+4. **Runs AI councils**: one validates the news (is it credible, how severe), another turns it into a usage multiplier on the forecast.
+5. **Raises purchase orders** for items predicted to reach their reorder trigger within the supplier's lead time. These are created as `Pending`, with AiGIS as the creator.
+6. **Scores its own accuracy** weekly by comparing predicted usage with recorded usage.
+
+Nothing is sent to a supplier without a person reviewing it.
+
+For the full rules, constants and formulas, see [`SPECIFICATIONS.md`](SPECIFICATIONS.md) and [`docs/Internal-Calculation.md`](docs/Internal-Calculation.md).
+
+## Pages
+
+| Page | What it shows |
+| --- | --- |
+| Dashboard | Air pollution index, purchase orders delivered, prediction accuracy, items well stocked, PO status, AiGIS automated POs, and the Aegi assistant |
+| Inventory | Daily stock calendar |
+| Predictions | Forecast graph, AI council runs, sync runs and sync controls |
+| Orders | All purchase orders: view, mark received, delete |
+| Items | Item catalogue and suppliers |
+| Settings | Database connection and sync preferences |
+| FAQ | Plain-language explanation of how AiGIS works |
+
+## Tech stack
+
+- [Next.js](https://nextjs.org) 16 (App Router, Turbopack, Cache Components), React 19, TypeScript
+- Tailwind CSS 4, Radix UI, Recharts, `@xyflow/react`, lucide-react
+- TanStack Query and TanStack Table, React Hook Form, Zod
+- Supabase (Postgres) through `@supabase/supabase-js`, using the service role key on the server only
+- OpenRouter (`@openrouter/sdk`) for the LLM calls
+- `cheerio` and `pdf-parse` for reading MOH statements
+
+## Getting started
+
+### Prerequisites
+
+- Node.js 20 or newer
+- A Supabase project (see [Database](#database))
+- An OpenRouter API key
+
+### Install and run
 
 ```bash
+npm install
+cp .env.example .env     # then fill in the values below
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). It redirects to the dashboard.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Environment variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Set these in `.env`:
 
-## Learn More
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-only key used by every API route. Never expose it to the client. |
+| `OPENROUTER_API_KEY` | For AI features | Screener and council LLM calls |
+| `OPENROUTER_MODEL` | For AI features | Default model |
+| `OPENROUTER_BASE_URL` | Optional | Base URL of an OpenRouter-compatible gateway, if your key is not an openrouter.ai key |
+| `WAQI_API_TOKEN` | Optional | Live air pollution reading on the dashboard ([get a token](https://aqicn.org/data-platform/token/)) |
+| `SCRAPER_API_KEY` | Optional | ZenRows API key. Needed to fetch MOH press statements, because moh.gov.my blocks plain server requests. Without it the MOH source fails and WHO still works. |
+| `CRON_SECRET` | Optional | Min 16 characters. Protects the scheduled sync endpoint. |
 
-To learn more about Next.js, take a look at the following resources:
+## Database
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The schema lives in [`schema.sql`](schema.sql). It is a reference snapshot of the live Supabase database, not a script to run. Changes go through Supabase migrations.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+[`seed.sql`](seed.sql) loads a realistic stock, order and forecast history (generated by `scripts/generate-seed.mjs`, so edit the script, not the SQL). **It deletes** the stock, order, forecast, news and sync tables before refilling them, and keeps news sources, policies and suppliers. After seeding, run a **Full sync** from the Predictions page to produce fresh forecasts.
 
-## Deploy on Vercel
+The app has no login and talks to Supabase with the service role key, so keep that key private.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Sync pipeline
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+A sync run (`lib/ai/sync.ts`) goes through these stages, and only one can run at a time:
+
+1. `algorithmic_forecast` (full scope only): arithmetic forecast
+2. `fetching_news`: WHO and MOH articles are fetched and de-duplicated by URL
+3. `screening`: the LLM screens new articles
+4. `enriching_moh`, `rescreening`: MOH statements the screener selected have their PDF attachment read, then are re-screened with the real content
+5. `cycle1`: council validates the news
+6. `cycle2`: council adjusts the forecast
+7. Purchase orders are raised from the result
+
+Each run is capped at a spend of `$1` (`MAX_SYNC_COST_USD`).
+
+Ways to start one:
+
+- **From the app**: the Predictions page.
+- **Manually**: `POST /api/sync-runs` with `{"scope": "news"}` or `{"scope": "full"}`.
+- **On a schedule**: `POST /api/sync-runs/scheduled` with `{"trigger": "hourly"}` (news only) or `{"trigger": "daily"}` (full), sending `Authorization: Bearer <CRON_SECRET>`.
+
+A full sync with LLM calls takes several minutes. The routes set `maxDuration = 300`, so on a serverless host check your plan's function time limit.
+
+### Adding a news source
+
+1. Add a fetcher in `lib/ai/sources/` that returns `FetchedArticle[]`.
+2. Register it by name in `SOURCE_FETCHERS` in `lib/ai/ingest.ts`.
+3. Insert a row in `news_sources` with the same `name`.
+
+Articles are keyed by `url`, so re-fetching never creates duplicates.
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Start the dev server |
+| `npm run build` | Production build |
+| `npm run start` | Serve the production build |
+| `npm run lint` | Run ESLint |
+
+During `npm run build` you will see many `Route /api/... needs to bail out of prerendering because it used request.url` messages. These are expected: those routes read query strings, so Next marks them dynamic. The build still succeeds.
+
+Do not run `npm run build` while `npm run dev` is running. Both write to `.next` and the dev server will start returning 500s until you restart it.
+
+## Project structure
+
+```
+app/
+  (shell)/          Pages inside the sidebar and top bar layout
+  api/              Route handlers, one route.ts per endpoint
+components/         UI by feature (dashboard, orders, items, predictions, ui, layout)
+lib/
+  ai/               News ingestion, screener, councils, sync pipeline
+  forecast/         Arithmetic forecast, run-out projection, accuracy
+  orders/           Automated purchase order logic and PO documents
+  data/, queries/   Aggregations and database reads
+  api/              Typed client wrappers around the API routes
+  db/               Supabase client and row types
+docs/               Calculation notes and HTML design references
+scripts/            Seed generator
+public/             Static assets, including the Aegi assistant files
+```
+
+## Conventions
+
+- Validate every API boundary with Zod and return responses through `lib/response.ts`.
+- Styling uses the Tailwind scale and theme tokens from `app/globals.css`. Avoid arbitrary values and inline styles for colour, spacing or layout.
+- Every number on screen carries a provenance tag (Database, Model output, Public evidence, Synthetic data). Sample data is always labelled as sample.
+
+## License
+
+[MIT](LICENSE)
