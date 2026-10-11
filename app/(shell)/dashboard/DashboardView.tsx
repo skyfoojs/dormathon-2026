@@ -71,9 +71,13 @@ function AegiHost({ facilityId }: { facilityId: number }) {
     queryKey: ["purchase-orders", facilityId],
     queryFn: () => api.getPurchaseOrders(facilityId),
   });
-  const pendingCount = (poQuery.data ?? []).filter(
-    (po) => po.status === "Pending",
-  ).length;
+  // Count orders, not lines: the rows of one PO document share a po_doc_id
+  // and the Orders page shows them as a single order, so Aegi must too.
+  const pendingCount = new Set(
+    (poQuery.data ?? [])
+      .filter((po) => po.status === "Pending")
+      .map((po) => po.po_doc_id ?? `po:${po.po_id}`),
+  ).size;
 
   return <AegiAvatar pending={pendingCount} sample={false} reviewHref="/orders" />;
 }
