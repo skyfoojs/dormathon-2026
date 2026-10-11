@@ -8,6 +8,7 @@ import { usageOnDay } from "@/lib/forecast/demand";
 import { loadForecastInputs, type ForecastInputs } from "@/lib/forecast/run";
 import type { ForecastItem } from "@/lib/queries/forecastInputs";
 import { PAST_NEWS_WINDOW_DAYS, ageInDays, findRecentNews, type RecentNews } from "@/lib/ai/news";
+import { findHazeSummary } from "@/lib/haze";
 
 export const CYCLE2_PERSONAS: readonly Persona[] = [
   {
@@ -36,6 +37,7 @@ const CYCLE2_TASK = [
   "confidence: 0 to 1.",
   "reasoning: why, including why the algorithmic forecast is sufficient or not.",
   "news has the latest council verdict per article and its age in days; older news usually matters less.",
+  "haze: air quality (US AQI) for Kuala Lumpur, as daily averages for the last 14 days and weekly averages for the last 8 weeks, with the change vs yesterday and vs last week. Higher haze usually raises respiratory demand (inhalers, nebules, masks, oxygen). It is null when no readings exist.",
   "Only use item_id values from items. Return exactly one forecast per item.",
 ].join("\n");
 
@@ -59,11 +61,12 @@ const USAGE_REFERENCE_DAYS = [1, 7, 14, 30] as const;
 export type Cycle2Result = { councilRunId: number; forecasts: number; stockAsOf: string | null };
 
 export async function runCycle2(syncRunId: number): Promise<Cycle2Result> {
-  const [inputs, forecasts, news, stockAsOf] = await Promise.all([
+  const [inputs, forecasts, news, stockAsOf, haze] = await Promise.all([
     loadForecastInputs(),
     findLatestForecasts(),
     findRecentNews(),
     findLatestInventoryDate(),
+    findHazeSummary(),
   ]);
   const forecastable = inputs.items.filter((item) => forecasts.has(item.item_id));
   if (forecastable.length === 0) {
@@ -79,6 +82,7 @@ export async function runCycle2(syncRunId: number): Promise<Cycle2Result> {
       stock_as_of: stockAsOf,
       past_news_window_days: PAST_NEWS_WINDOW_DAYS,
       news: news.filter(isValidated).map(toNewsInput),
+      haze,
       items: forecastable.map((item) => toItemInput(item, forecasts, inputs)),
     },
     personas: CYCLE2_PERSONAS,

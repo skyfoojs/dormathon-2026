@@ -64,9 +64,15 @@ const ITEMS = [
   { item_id: 11, item_name: "Nebulizer mask set", category: "Consumable", unit: "set", unit_cost_myr: 2.5, shelf_life_months: 60, is_critical: 0, storage: "Ambient", primary_supplier_id: 5, dailyUse: 13, haze: 0.5, pack: 20, week: INPATIENT_WEEK, ends: "low" },
 ];
 
-// Weekly average air pollution index, oldest first. The haze season builds
-// from August and peaks in mid September.
+// Weekly average air pollution index, oldest first, used before the real
+// daily readings below start.
 const HAZE_BY_WEEK = [33, 36, 39, 42, 43, 19, 42, 21, 34, 33, 39, 65, 58, 65, 39, 92, 87, 92, 83, 86, 160, 109, 105, 82, 94, 78];
+
+// Real daily average US AQI for central Kuala Lumpur (Open-Meteo, Copernicus
+// CAMS model), one value per day from REAL_HAZE_START.
+const REAL_HAZE_START = "2026-08-16";
+const REAL_HAZE_DAILY = [133, 133, 120, 96, 97, 116, 137, 134, 142, 168, 171, 174, 164, 154, 153, 161, 156, 163, 150, 115, 153, 189, 176, 181, 176, 138, 123, 97, 116, 142, 190, 193, 183, 163, 158, 142, 141, 108, 158, 124, 124, 108, 96, 133, 151, 164, 155, 159, 170, 172, 168, 179, 208, 228, 221, 172];
+const HAZE_TRACKER_NAME = "Haze (Air Pollutant Index)";
 
 const dayNumber = (iso) => Math.round(Date.parse(`${iso}T00:00:00Z`) / MS_PER_DAY);
 const isoDate = (day) => new Date(day * MS_PER_DAY).toISOString().slice(0, 10);
@@ -77,14 +83,10 @@ const endDay = dayNumber(END_DATE);
 const firstDay = endDay - (HISTORY_DAYS - 1) - weekdayOf(endDay - (HISTORY_DAYS - 1));
 
 function hazeOn(day) {
+  const real = REAL_HAZE_DAILY[day - dayNumber(REAL_HAZE_START)];
+  if (real !== undefined) return real;
   const week = Math.floor((day - firstDay) / 7);
   return HAZE_BY_WEEK[Math.min(Math.max(week, 0), HAZE_BY_WEEK.length - 1)];
-}
-
-function hazeCategory(api) {
-  if (api <= 50) return "Good";
-  if (api <= 100) return "Moderate";
-  return "Unhealthy";
 }
 
 // Small seeded generator, so a run can be repeated exactly.
@@ -324,10 +326,8 @@ const orderRows = runs
 
 const batchRows = runs.flatMap((run) => toBatches(run, lotRandom)).map((batch, i) => ({ batch_id: FIRST_BATCH_ID + i, facility_id: FACILITY_ID, ...batch }));
 
-const hazeRows = [];
-for (let day = firstDay; day <= endDay; day += 7) {
-  hazeRows.push({ facility_id: FACILITY_ID, week_start: isoDate(day), api_avg: hazeOn(day), api_category: hazeCategory(hazeOn(day)) });
-}
+const hazeReadings = REAL_HAZE_DAILY.map((value, i) => ({ recorded_at: `${isoDate(dayNumber(REAL_HAZE_START) + i)}T12:00:00+08:00`, value }))
+  .filter((r) => r.recorded_at.slice(0, 10) <= END_DATE);
 
 const itemRows = ITEMS.map((item) => ({ ...item, cover_days: 30, reorder_level: 0 }));
 const supplierRows = SUPPLIERS.map((supplier) => ({ ...supplier, country: "Malaysia" }));
@@ -335,7 +335,7 @@ const supplierRows = SUPPLIERS.map((supplier) => ({ ...supplier, country: "Malay
 const statements = [
   // Forecasts, AiGIS orders and the AI run history were worked out from the
   // old stock figures, so they all go. News sources are kept.
-  "TRUNCATE TABLE public.ai_forecasts, public.demand_forecasts, public.news_verdicts, public.articles, public.llm_calls, public.council_seats, public.council_runs, public.sync_runs, public.purchase_orders, public.po_documents, public.batches, public.daily_inventory, public.weekly_inventory, public.haze_api_weekly RESTART IDENTITY",
+  "TRUNCATE TABLE public.ai_forecasts, public.demand_forecasts, public.news_verdicts, public.articles, public.llm_calls, public.council_seats, public.council_runs, public.sync_runs, public.purchase_orders, public.po_documents, public.batches, public.daily_inventory, public.weekly_inventory, public.tracker_readings RESTART IDENTITY",
   ...upsert("facilities", "facility_id", ["facility_id", "facility_name", "facility_type", "sector", "district", "state", "size_tier"], [FACILITY]),
   // suppliers.email is left as it is: it holds a real address.
   ...upsert("suppliers", "supplier_id", ["supplier_id", "supplier_name", "supplier_type", "state", "lead_time_days", "reliability_score", "country"], supplierRows),
@@ -343,7 +343,8 @@ const statements = [
     cover_days: "COALESCE(items.cover_days, EXCLUDED.cover_days)",
     reorder_level: "COALESCE(items.reorder_level, EXCLUDED.reorder_level)",
   }),
-  ...insert("haze_api_weekly", ["facility_id", "week_start", "api_avg", "api_category"], hazeRows),
+  `INSERT INTO public.trackers (name, url, unit, region, categories, frequency, active) VALUES\n  (${literal(HAZE_TRACKER_NAME)}, 'https://api.waqi.info/feed/geo:3.0642277081841227;101.61747439694862/', 'US AQI', 'Kuala Lumpur / Petaling Jaya', ARRAY['Medication','Medical Gas','PPE','Consumable'], 'hourly', true)\nON CONFLICT (name) DO NOTHING`,
+  `INSERT INTO public.tracker_readings (tracker_id, metric, recorded_at, value)\nSELECT t.tracker_id, 'aqi', v.recorded_at, v.value FROM public.trackers t, (VALUES\n${hazeReadings.map((r) => `  (${literal(r.recorded_at)}, ${r.value})`).join(",\n")}\n) AS v(recorded_at, value)\nWHERE t.name = ${literal(HAZE_TRACKER_NAME)}`,
   ...insert("daily_inventory", ["facility_id", "item_id", "inventory_date", "opening_stock", "received_qty", "issued_qty", "unmet_demand_qty", "wastage_qty", "closing_stock", "reorder_level", "stockout_flag"], dailyRows),
   ...insert("weekly_inventory", ["record_id", "facility_id", "item_id", "week_start", "opening_stock", "received_qty", "issued_qty", "unmet_demand_qty", "wastage_qty", "closing_stock", "reorder_level", "weeks_of_cover", "stockout_flag", "haze_api_avg"], weeklyRows),
   ...insert("purchase_orders", ["po_id", "facility_id", "item_id", "supplier_id", "order_date", "qty_ordered", "unit_cost_myr", "expected_receipt_date", "actual_receipt_date", "qty_received", "status", "created_by"], orderRows),
@@ -357,7 +358,8 @@ const header = `-- AiGIS seed data. Generated by scripts/generate-seed.mjs: edit
 --
 -- REMOVES every row from: ai_forecasts, demand_forecasts, news_verdicts,
 -- articles, llm_calls, council_seats, council_runs, sync_runs, purchase_orders,
--- po_documents, batches, daily_inventory, weekly_inventory, haze_api_weekly.
+-- po_documents, batches, daily_inventory, weekly_inventory, tracker_readings
+-- (refilled with the real Kuala Lumpur haze readings).
 -- KEEPS: news sources, policies, and suppliers.email.
 --
 -- After running it, press Full sync on the Predictions page for fresh forecasts.

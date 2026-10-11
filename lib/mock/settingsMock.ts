@@ -20,7 +20,7 @@ export const TABLE_MAP_ROWS: TableMapRow[] = [
   { table: "facilities", purpose: "Hospitals and clinics this system covers", rowCount: 4, status: "Matched" },
   { table: "suppliers", purpose: "Who items are ordered from", rowCount: 3, status: "Matched" },
   { table: "items", purpose: "Catalogue of tracked stock items", rowCount: 6, status: "Matched" },
-  { table: "haze_api_weekly", purpose: "Weekly haze API reading per facility", rowCount: 16, status: "Matched" },
+  { table: "tracker_readings", purpose: "Haze readings (US AQI) over time", rowCount: 56, status: "Matched" },
   { table: "weekly_inventory", purpose: "Weekly stock movement per facility and item", rowCount: 96, status: "Matched" },
   { table: "purchase_orders", purpose: "Orders placed with suppliers", rowCount: 8, status: "Remapped" },
   { table: "batches", purpose: "Lot numbers and expiry per item", rowCount: 3, status: "Not mapped" },

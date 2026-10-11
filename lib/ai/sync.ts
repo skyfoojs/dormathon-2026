@@ -12,6 +12,7 @@ import { deriveAiForecastFields, findLatestAiForecasts, toUsageAdjustment } from
 import { findLatestForecasts, findLatestInventoryDate, toForecastBasis } from "@/lib/ai/algorithmic";
 import { loadForecastInputs, runForecasts } from "@/lib/forecast/run";
 import { runAutomatedPurchaseOrders } from "@/lib/orders/automatedPurchaseOrders";
+import { hazeCategoryChangedSince, recordHazeReading } from "@/lib/haze";
 
 export type SyncTrigger = "manual" | "hourly" | "daily";
 export type SyncScope = "news" | "full";
@@ -49,6 +50,7 @@ export type SyncRun = z.infer<typeof syncRunSchema>;
 export const SYNC_RUN_COLUMNS = "sync_run_id, trigger, scope, status, stage, error, stock_as_of, started_at, finished_at";
 
 const costRowSchema = z.object({ cost_usd: z.number().nullable() });
+const lastCouncilRowSchema = z.object({ created_at: z.string() });
 const countSchema = z.number();
 
 class CostCapExceededError extends Error {
@@ -111,12 +113,17 @@ async function runPipeline(syncRunId: number, scope: SyncScope): Promise<string 
   }
 
   await setStage(syncRunId, "fetching_news");
+  await recordHazeSafely(syncRunId);
   const ingest = await ingestNews(syncRunId);
   if (ingest.failedSources.length > 0) {
     console.error(`Sync run ${syncRunId}: news sources failed`, ingest.failedSources);
   }
 
   if (ingest.newArticleIds.length === 0 && (await countPendingArticles()) === 0) {
+    if (await hazeChangedSinceLastForecast()) {
+      await setStage(syncRunId, "cycle2");
+      return (await runCycle2(syncRunId)).stockAsOf;
+    }
     await setStage(syncRunId, "reusing_last_verdict");
     return reuseLastAiForecasts(syncRunId);
   }
@@ -145,6 +152,27 @@ async function runPipeline(syncRunId: number, scope: SyncScope): Promise<string 
   await setStage(syncRunId, "cycle2");
   const cycle2 = await runCycle2(syncRunId);
   return cycle2.stockAsOf;
+}
+
+async function recordHazeSafely(syncRunId: number): Promise<void> {
+  try {
+    await recordHazeReading();
+  } catch (err) {
+    console.error(`Sync run ${syncRunId}: haze reading skipped`, err);
+  }
+}
+
+async function hazeChangedSinceLastForecast(): Promise<boolean> {
+  const { data, error } = await getDb()
+    .from("council_runs")
+    .select("created_at")
+    .eq("cycle", 2)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return false;
+  return hazeCategoryChangedSince(lastCouncilRowSchema.parse(data).created_at);
 }
 
 async function setStage(syncRunId: number, stage: SyncStage): Promise<void> {
