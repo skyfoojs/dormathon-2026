@@ -13,6 +13,7 @@ import type {
 } from "@/lib/db/types";
 import type { ItemAccuracy } from "@/lib/forecast/accuracy";
 import type { Arrival, RestockTrigger, StockPoint } from "@/lib/forecast/runout";
+import type { UsageOutlook } from "@/lib/forecast/outlook";
 import type { ItemStockStatus } from "@/lib/orders/restockPlan";
 import type { SyncRun, SyncScope } from "@/lib/ai/sync";
 
@@ -214,6 +215,7 @@ export type CouncilItemForecast = {
   fade_days: number | null;
   confidence: number;
   reasoning: string;
+  outlook: UsageOutlook | null;
 };
 
 type CouncilTokens = { tokensIn: number; tokensOut: number; called: boolean };
@@ -247,7 +249,6 @@ export type CouncilCycle = {
   members: CouncilMember[];
   reviews: CouncilReview[];
   chairman: CouncilChairman;
-  peerIndex: { label: string; persona: string; index: number | null; agreement: number | null }[];
 };
 
 export type ArticleRef = { id: number; title: string; source: string };
@@ -256,7 +257,7 @@ export type RunCouncil = {
   run: SyncRun;
   shownRunId: number;
   reused: boolean;
-  items: { id: number; name: string }[];
+  items: { id: number; name: string; unit: string }[];
   articles: ArticleRef[];
   algorithmic: { forecastCount: number; stockAsOf: string | null; atOrBelowItemIds: number[] } | null;
   news: {
@@ -285,6 +286,7 @@ export type RunCouncil = {
     buyQty: number | null;
     thresholdDate: string | null;
     stockoutDate: string | null;
+    outlook: UsageOutlook | null;
   }[];
 };
 

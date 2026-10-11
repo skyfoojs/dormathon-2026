@@ -7,13 +7,15 @@ import { CYCLE1_PERSONAS, verdictsSchema } from "@/lib/ai/cycle1";
 import { CYCLE2_PERSONAS, forecastsSchema } from "@/lib/ai/cycle2";
 import { reviewSchema, type Persona } from "@/lib/ai/council";
 import { findRunAiForecasts } from "@/lib/ai/aiForecasts";
+import { findForecastsByIds, findLatestForecasts, toForecastBasis, type ForecastRow } from "@/lib/ai/algorithmic";
+import { loadForecastInputs } from "@/lib/forecast/run";
+import { usageOutlook, type UsageOutlook } from "@/lib/forecast/outlook";
 
 const idParamSchema = z.coerce.number().int().min(1);
 
 const CHAIRMAN_BRIEF = "No persona. Weighs the members' arguments and peer reviews, discounts bias, and decides.";
-const AGREEMENT_TOLERANCE = 0.1;
 
-const itemRowSchema = z.object({ item_id: z.number(), item_name: z.string() });
+const itemRowSchema = z.object({ item_id: z.number(), item_name: z.string(), unit: z.string() });
 const sourceRowSchema = z.object({
   source_id: z.number(),
   name: z.string(),
@@ -69,7 +71,7 @@ type ArticleRow = z.infer<typeof articleRowSchema>;
 type CallRow = z.infer<typeof callRowSchema>;
 type SeatRow = z.infer<typeof seatRowSchema>;
 type Verdict = z.infer<typeof verdictsSchema>["verdicts"][number];
-type ItemForecast = z.infer<typeof forecastsSchema>["forecasts"][number];
+type ItemForecast = z.infer<typeof forecastsSchema>["forecasts"][number] & { outlook: UsageOutlook | null };
 type Review = z.infer<typeof reviewSchema>;
 
 type Tokens = { tokensIn: number; tokensOut: number; called: boolean };
@@ -84,22 +86,23 @@ type MemberDto = Tokens & {
 };
 type ReviewDto = Tokens & { label: string; persona: string; review: Review | null; error: string | null };
 type ChairmanDto = Tokens & { brief: string; error: string | null; verdicts: Verdict[] | null; forecasts: ItemForecast[] | null };
-type PeerIndexDto = { label: string; persona: string; index: number | null; agreement: number | null };
+type OutlookFor = (itemId: number, usageMultiplier: number, fadeDays: number | null) => UsageOutlook | null;
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const runId = idParamSchema.parse((await ctx.params).id);
     const run = await findRun(runId);
     const shownRunId = (await findReusedSourceRunId(runId)) ?? runId;
-    const [items, sources, calls, fetched, aiForecast, algorithmic, councilRuns] = await Promise.all([
+    const [items, sources, calls, fetched, algorithmic, councilRuns, outlookFor] = await Promise.all([
       findItems(),
       findSources(),
       findCalls(shownRunId),
       findArticles("sync_run_id", [shownRunId]),
-      buildAiForecast(runId),
       run.scope === "full" ? buildAlgorithmic(run) : Promise.resolve(null),
       findCouncilRuns(shownRunId),
+      buildOutlookFor([runId, shownRunId]),
     ]);
+    const aiForecast = await buildAiForecast(runId, outlookFor);
     const screenerCalls = calls.filter((c) => c.seat_id === null);
     const [screened, referenced, seats] = await Promise.all([
       findArticles("screen_call_id", screenerCalls.map((c) => c.call_id)),
@@ -111,7 +114,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       run,
       shownRunId,
       reused: shownRunId !== runId,
-      items: items.map((i) => ({ id: i.item_id, name: i.item_name })),
+      items: items.map((i) => ({ id: i.item_id, name: i.item_name, unit: i.unit })),
       articles: [...fetched, ...referenced].map((a) => toArticleRef(a, sourceName)),
       algorithmic,
       news: toNewsDto(sources, fetched, sourceName),
@@ -121,6 +124,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
           cycle,
           seats.filter((seat) => seat.council_run_id === council_run_id),
           calls,
+          outlookFor,
         ),
       ),
       aiForecast,
@@ -157,7 +161,7 @@ async function findReusedSourceRunId(runId: number): Promise<number | null> {
 }
 
 async function findItems(): Promise<ItemRow[]> {
-  const { data, error } = await getDb().from("items").select("item_id, item_name").order("item_name");
+  const { data, error } = await getDb().from("items").select("item_id, item_name, unit").order("item_name");
   if (error) throw error;
   return z.array(itemRowSchema).parse(data);
 }
@@ -258,20 +262,28 @@ async function findSeats(councilRunIds: number[]): Promise<SeatRow[]> {
   return z.array(seatRowSchema).parse(data);
 }
 
-function toCycleDto(cycle: 1 | 2, seats: SeatRow[], calls: CallRow[]) {
+function toCycleDto(cycle: 1 | 2, seats: SeatRow[], calls: CallRow[], outlookFor: OutlookFor) {
   const personas = cycle === 1 ? CYCLE1_PERSONAS : CYCLE2_PERSONAS;
   const callFor = (seatId: number, stage: CallRow["stage"]) =>
     calls.find((c) => c.seat_id === seatId && c.stage === stage) ?? null;
   const memberSeats = seats.filter((s) => s.role === "member");
   const chairmanSeat = seats.find((s) => s.role === "chairman");
 
-  const members = memberSeats.map((seat) => toMemberDto(cycle, seat, callFor(seat.seat_id, "opinion"), personas));
+  const members = memberSeats.map((seat) =>
+    toMemberDto(cycle, seat, callFor(seat.seat_id, "opinion"), personas, outlookFor),
+  );
   const reviews = memberSeats.map((seat) => toReviewDto(seat, callFor(seat.seat_id, "review")));
-  const chairman = toChairmanDto(cycle, chairmanSeat ? callFor(chairmanSeat.seat_id, "decision") : null);
-  return { cycle, members, reviews, chairman, peerIndex: computePeerIndex(cycle, members, reviews, chairman) };
+  const chairman = toChairmanDto(cycle, chairmanSeat ? callFor(chairmanSeat.seat_id, "decision") : null, outlookFor);
+  return { cycle, members, reviews, chairman };
 }
 
-function toMemberDto(cycle: 1 | 2, seat: SeatRow, call: CallRow | null, personas: readonly Persona[]): MemberDto {
+function toMemberDto(
+  cycle: 1 | 2,
+  seat: SeatRow,
+  call: CallRow | null,
+  personas: readonly Persona[],
+  outlookFor: OutlookFor,
+): MemberDto {
   return {
     seatId: seat.seat_id,
     persona: seat.persona,
@@ -281,7 +293,7 @@ function toMemberDto(cycle: 1 | 2, seat: SeatRow, call: CallRow | null, personas
     tokensOut: call?.tokens_out ?? 0,
     called: call !== null,
     error: call ? call.error : "No answer",
-    ...parseAnswer(cycle, call),
+    ...parseAnswer(cycle, call, outlookFor),
   };
 }
 
@@ -297,69 +309,33 @@ function toReviewDto(seat: SeatRow, call: CallRow | null): ReviewDto {
   };
 }
 
-function toChairmanDto(cycle: 1 | 2, call: CallRow | null): ChairmanDto {
+function toChairmanDto(cycle: 1 | 2, call: CallRow | null, outlookFor: OutlookFor): ChairmanDto {
   return {
     brief: CHAIRMAN_BRIEF,
     tokensIn: call?.tokens_in ?? 0,
     tokensOut: call?.tokens_out ?? 0,
     called: call !== null,
     error: call ? call.error : "No decision",
-    ...parseAnswer(cycle, call),
+    ...parseAnswer(cycle, call, outlookFor),
   };
 }
 
-function parseAnswer(cycle: 1 | 2, call: CallRow | null): Pick<MemberDto, "verdicts" | "forecasts"> {
-  if (!call) return { verdicts: null, forecasts: null };
-  return cycle === 1
-    ? { verdicts: verdictsSchema.safeParse(call.output).data?.verdicts ?? null, forecasts: null }
-    : { verdicts: null, forecasts: forecastsSchema.safeParse(call.output).data?.forecasts ?? null };
-}
-
-function computePeerIndex(
+function parseAnswer(
   cycle: 1 | 2,
-  members: MemberDto[],
-  reviews: ReviewDto[],
-  chairman: ChairmanDto,
-): PeerIndexDto[] {
-  return members.map((member) => ({
-    label: member.label,
-    persona: member.persona,
-    index: rankIndex(member.label, reviews),
-    agreement: cycle === 1 ? verdictAgreement(member, chairman) : forecastAgreement(member, chairman),
-  }));
+  call: CallRow | null,
+  outlookFor: OutlookFor,
+): Pick<MemberDto, "verdicts" | "forecasts"> {
+  if (!call) return { verdicts: null, forecasts: null };
+  if (cycle === 1) return { verdicts: verdictsSchema.safeParse(call.output).data?.verdicts ?? null, forecasts: null };
+  const forecasts = forecastsSchema.safeParse(call.output).data?.forecasts ?? null;
+  return {
+    verdicts: null,
+    forecasts:
+      forecasts?.map((f) => ({ ...f, outlook: outlookFor(f.item_id, f.usage_multiplier, f.fade_days) })) ?? null,
+  };
 }
 
-function rankIndex(label: string, reviews: ReviewDto[]): number | null {
-  const scores = reviews.flatMap(({ review }) => {
-    const ranking = review?.ranking ?? [];
-    const position = ranking.findIndex((r) => r.trim().endsWith(` ${label}`) || r.trim() === label);
-    if (position === -1 || ranking.length < 2) return [];
-    return [(ranking.length - 1 - position) / (ranking.length - 1)];
-  });
-  return scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) : null;
-}
-
-function verdictAgreement(member: MemberDto, chairman: ChairmanDto): number | null {
-  if (!member.verdicts || !chairman.verdicts) return null;
-  const finalById = new Map(chairman.verdicts.map((v) => [v.article_id, v.valid]));
-  const compared = member.verdicts.filter((v) => finalById.has(v.article_id));
-  if (compared.length === 0) return null;
-  return Math.round((compared.filter((v) => finalById.get(v.article_id) === v.valid).length / compared.length) * 100);
-}
-
-function forecastAgreement(member: MemberDto, chairman: ChairmanDto): number | null {
-  if (!member.forecasts || !chairman.forecasts) return null;
-  const finalById = new Map(chairman.forecasts.map((f) => [f.item_id, f.usage_multiplier]));
-  const compared = member.forecasts.filter((f) => finalById.has(f.item_id));
-  if (compared.length === 0) return null;
-  const agreeing = compared.filter((f) => {
-    const final = finalById.get(f.item_id) ?? 0;
-    return Math.abs(f.usage_multiplier - final) <= AGREEMENT_TOLERANCE * final;
-  });
-  return Math.round((agreeing.length / compared.length) * 100);
-}
-
-async function buildAiForecast(runId: number) {
+async function buildAiForecast(runId: number, outlookFor: OutlookFor) {
   const [adjustments, rows] = await Promise.all([findRunAiForecasts(runId), findRunAiForecastRows(runId)]);
   return rows.map((row) => {
     const adjustment = adjustments.get(row.item_id);
@@ -372,8 +348,44 @@ async function buildAiForecast(runId: number) {
       buyQty: row.buy_qty,
       thresholdDate: row.threshold_date,
       stockoutDate: row.stockout_date,
+      outlook: adjustment ? outlookFor(row.item_id, adjustment.usageMultiplier, adjustment.fadeDays) : null,
     };
   });
+}
+
+async function buildOutlookFor(runIds: number[]): Promise<OutlookFor> {
+  const [inputs, forecasts] = await Promise.all([loadForecastInputs(), findOutlookForecasts(runIds)]);
+  return (itemId, usageMultiplier, fadeDays) => {
+    const forecast = forecasts.get(itemId);
+    const item = inputs.items.find((i) => i.item_id === itemId);
+    if (!forecast || !item) return null;
+    return usageOutlook({
+      basis: toForecastBasis(forecast, item.cover_days),
+      forecastDate: forecast.forecast_date,
+      usageMultiplier,
+      fadeDays,
+      reorderLevel: item.reorder_level,
+      dailyRows: inputs.dailyByItem.get(itemId) ?? [],
+      purchaseOrders: inputs.purchaseOrdersByItem.get(itemId) ?? [],
+    });
+  };
+}
+
+async function findOutlookForecasts(runIds: number[]): Promise<Map<number, ForecastRow>> {
+  const [latest, ...perRun] = await Promise.all([findLatestForecasts(), ...runIds.map((id) => findRunAiForecasts(id))]);
+  const forecastIdByItem = new Map<number, number>();
+  for (const adjustments of perRun) {
+    for (const [itemId, adjustment] of adjustments) {
+      if (!forecastIdByItem.has(itemId)) forecastIdByItem.set(itemId, adjustment.forecastId);
+    }
+  }
+  const byId = await findForecastsByIds([...new Set(forecastIdByItem.values())]);
+  const result = new Map(latest);
+  for (const [itemId, forecastId] of forecastIdByItem) {
+    const forecast = byId.get(forecastId);
+    if (forecast) result.set(itemId, forecast);
+  }
+  return result;
 }
 
 async function findRunAiForecastRows(runId: number) {

@@ -1,23 +1,34 @@
 "use client";
 
 import * as React from "react";
-import { X } from "lucide-react";
+import { MousePointerClick, X } from "lucide-react";
 import { IconButton } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/DataTable";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Label, Select } from "@/components/ui/Input";
-import { Tag } from "@/components/ui/Tag";
+import { Tag, type TagTone } from "@/components/ui/Tag";
 import { ItemSelect } from "@/components/predictions/ItemSelect";
+import {
+  backToNormal,
+  impactLabel,
+  outlookCells,
+  outlookText,
+  personaInitials,
+  usageChange,
+} from "@/components/predictions/councilFormat";
 import { createTableColumnHelper } from "@/lib/table/features";
+import { cn, focusRingClasses } from "@/lib/cn";
 import { formatShortDate } from "@/lib/data/dates";
 import type {
   CouncilCycle,
   CouncilItemForecast,
+  CouncilMember,
   CouncilVerdict,
   RunCouncil,
 } from "@/lib/api/resources";
 
-type Lookups = { itemName: (id: number) => string; articleTitle: (id: number) => string };
+type CouncilItem = RunCouncil["items"][number];
+type Lookups = { itemName: (id: number) => string; unitOf: (id: number) => string; articleTitle: (id: number) => string };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -49,29 +60,66 @@ function TagList({ values }: { values: string[] }) {
   );
 }
 
-function VerdictView({ verdict }: { verdict: CouncilVerdict }) {
+function ImpactTag({ impact }: { impact: string | null }) {
+  const label = impactLabel(impact);
+  return label ? <Tag tone="blue">Impact: {label}</Tag> : null;
+}
+
+function MemberName({ name, final }: { name: string; final: boolean }) {
+  return <span className={cn(final && "font-semibold")}>{name}</span>;
+}
+
+function Value({ overruled, children }: { overruled: boolean; children: React.ReactNode }) {
+  return (
+    <span className="flex flex-wrap items-baseline gap-x-1.5">
+      <span className="font-mono">{children}</span>
+      {overruled ? <span className="text-xs font-semibold text-red-dark">(overruled)</span> : null}
+    </span>
+  );
+}
+
+function Reasoning({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="flex flex-col gap-1 border-t border-line pt-2">
+      <Eyebrow>{label}</Eyebrow>
+      <p className="text-sm text-strong-muted">{text}</p>
+    </div>
+  );
+}
+
+function VerdictView({ verdict, reasoningLabel }: { verdict: CouncilVerdict; reasoningLabel: string }) {
   return (
     <div className="flex flex-col gap-2">
       <span className="flex flex-wrap items-center gap-2">
         <Tag tone={verdict.valid ? "green" : "red"}>{verdict.valid ? "Valid" : "Not valid"}</Tag>
         <Tag tone="amber">Severity {verdict.severity}/5</Tag>
-        <Tag tone="blue">Impact: {verdict.impact_type}</Tag>
+        <ImpactTag impact={verdict.impact_type} />
       </span>
-      <TagList values={[...verdict.affected_categories, ...verdict.regions]} />
-      <p className="text-sm text-strong-muted">{verdict.reasoning}</p>
+      <TagList values={verdict.affected_categories} />
+      <Reasoning label={reasoningLabel} text={verdict.reasoning} />
     </div>
   );
 }
 
-function ForecastView({ forecast }: { forecast: CouncilItemForecast }) {
+function ForecastView({
+  forecast,
+  unit,
+  reasoningLabel,
+}: {
+  forecast: CouncilItemForecast;
+  unit: string;
+  reasoningLabel: string;
+}) {
+  const change = usageChange(forecast.usage_multiplier);
   return (
     <div className="flex flex-col gap-2">
       <span className="flex flex-wrap items-center gap-2">
-        <Tag tone={forecast.usage_multiplier === 1 ? "grey" : "amber"}>×{forecast.usage_multiplier}</Tag>
-        <Tag tone="blue">{forecast.fade_days === null ? "Lasts" : `Fades over ${forecast.fade_days} days`}</Tag>
+        <Tag tone="navy">{outlookText(forecast.outlook, unit)}</Tag>
+        <Tag tone={change.tone}>{change.text}</Tag>
+        <Tag tone="grey">{backToNormal(forecast.fade_days)}</Tag>
         <Tag tone="grey">Confidence {Math.round(forecast.confidence * 100)}%</Tag>
       </span>
-      <p className="text-sm text-strong-muted">{forecast.reasoning}</p>
+      <Reasoning label={reasoningLabel} text={forecast.reasoning} />
     </div>
   );
 }
@@ -108,10 +156,18 @@ type Picker = {
   setItemId: (id: number) => void;
 };
 
+type PanelContext = { picker: Picker; lookups: Lookups; items: CouncilItem[] };
+
+function pickArticle(verdicts: CouncilVerdict[], picked: number | null): number {
+  const match = verdicts.find((v) => v.article_id === picked);
+  return (match ?? verdicts[0]).article_id;
+}
+
 function CycleAnswer({
   cycle,
   verdicts,
   forecasts,
+  reasoningLabel,
   picker,
   lookups,
   items,
@@ -119,18 +175,16 @@ function CycleAnswer({
   cycle: 1 | 2;
   verdicts: CouncilVerdict[] | null;
   forecasts: CouncilItemForecast[] | null;
-  picker: Picker;
-  lookups: Lookups;
-  items: { id: number; name: string }[];
-}) {
+  reasoningLabel: string;
+} & PanelContext) {
   if (cycle === 1) {
     if (!verdicts?.length) return <p className="text-sm text-muted">No verdicts.</p>;
-    const articleId = verdicts.some((v) => v.article_id === picker.articleId) ? picker.articleId : verdicts[0].article_id;
+    const articleId = pickArticle(verdicts, picker.articleId);
     const verdict = verdicts.find((v) => v.article_id === articleId);
     return (
       <>
         <ArticleSelect ids={verdicts.map((v) => v.article_id)} value={articleId} onChange={picker.setArticleId} lookups={lookups} />
-        {verdict ? <VerdictView verdict={verdict} /> : null}
+        {verdict ? <VerdictView verdict={verdict} reasoningLabel={reasoningLabel} /> : null}
       </>
     );
   }
@@ -139,122 +193,304 @@ function CycleAnswer({
   return (
     <>
       <ItemSelect id="panel-item" items={items} value={picker.itemId} onChange={picker.setItemId} />
-      {forecast ? <ForecastView forecast={forecast} /> : <p className="text-sm text-muted">No answer for this item.</p>}
+      {forecast ? (
+        <ForecastView forecast={forecast} unit={lookups.unitOf(forecast.item_id)} reasoningLabel={reasoningLabel} />
+      ) : (
+        <p className="text-sm text-muted">No answer for this item.</p>
+      )}
     </>
   );
 }
 
-function MemberPanel({ cycle, seatId, ...rest }: { cycle: CouncilCycle; seatId: number } & PanelContext) {
+function MemberPanel({ cycle, seatId, ...context }: { cycle: CouncilCycle; seatId: number } & PanelContext) {
   const member = cycle.members.find((m) => m.seatId === seatId);
   if (!member) return null;
   return (
     <>
       <Section title={`Cycle ${cycle.cycle} persona`}>
-        <p className="text-base font-semibold">
-          {member.persona} <span className="font-mono text-sm text-muted">Response {member.label}</span>
-        </p>
+        <p className="text-base font-semibold">{member.persona}</p>
         <p className="text-sm text-strong-muted">{member.brief}</p>
         <Tokens tokensIn={member.tokensIn} tokensOut={member.tokensOut} />
-        {member.error ? <Tag tone="red">Dropped: {member.error}</Tag> : null}
+        {member.error && member.called ? <Tag tone="red">Dropped: {member.error}</Tag> : null}
       </Section>
-      <Section title={cycle.cycle === 1 ? "Verdict and thoughts" : "Multiplier and thoughts"}>
-        <CycleAnswer cycle={cycle.cycle} verdicts={member.verdicts} forecasts={member.forecasts} {...rest} />
+      <Section title={cycle.cycle === 1 ? "Verdict and thoughts" : "Forecast and thoughts"}>
+        <CycleAnswer
+          cycle={cycle.cycle}
+          verdicts={member.verdicts}
+          forecasts={member.forecasts}
+          reasoningLabel={`${member.persona}'s thoughts`}
+          {...context}
+        />
       </Section>
     </>
   );
 }
 
-const peerHelper = createTableColumnHelper<CouncilCycle["peerIndex"][number]>();
-const PEER_COLUMNS = [
-  peerHelper.accessor((r) => r.persona, {
-    id: "persona",
-    header: "Member",
-    cell: ({ row }) => (
-      <span>
-        {row.original.persona} <span className="font-mono text-xs text-muted">{row.original.label}</span>
-      </span>
-    ),
-  }),
-  peerHelper.accessor((r) => r.index ?? -1, {
-    id: "index",
-    header: "Index",
-    cell: ({ row }) => <span className="font-mono">{row.original.index ?? "—"}</span>,
-  }),
-  peerHelper.accessor((r) => r.agreement ?? -1, {
-    id: "agreement",
-    header: "Agrees",
-    cell: ({ row }) => <span className="font-mono">{row.original.agreement === null ? "—" : `${row.original.agreement}%`}</span>,
-  }),
-];
+type Convincing = "most" | "middle" | "least";
+
+const CONVINCING: Record<Convincing, { label: string; tone: TagTone }> = {
+  most: { label: "Most", tone: "green" },
+  middle: { label: "Middle", tone: "amber" },
+  least: { label: "Least", tone: "red" },
+};
+
+function rankGiven(cycle: CouncilCycle, reviewer: CouncilMember, reviewed: CouncilMember): Convincing | null {
+  const ranking = cycle.reviews.find((r) => r.persona === reviewer.persona)?.review?.ranking ?? [];
+  const index = ranking.findIndex((entry) => entry.trim().split(/\s+/).at(-1) === reviewed.label);
+  if (index === -1) return null;
+  if (index === 0) return "most";
+  return index === ranking.length - 1 ? "least" : "middle";
+}
+
+function firstRankedPair(cycle: CouncilCycle): { reviewer: CouncilMember; reviewed: CouncilMember } | null {
+  for (const reviewer of cycle.members) {
+    for (const reviewed of cycle.members) {
+      if (reviewer !== reviewed && rankGiven(cycle, reviewer, reviewed) !== null) return { reviewer, reviewed };
+    }
+  }
+  return null;
+}
+
+type MatrixRow = { reviewer: CouncilMember | null };
+const matrixHelper = createTableColumnHelper<MatrixRow>();
 
 function ReviewPanel({ cycle }: { cycle: CouncilCycle }) {
+  const [picked, setPair] = React.useState<{ reviewer: CouncilMember; reviewed: CouncilMember } | null>(null);
+  const members = cycle.members;
+  const pair = picked ?? firstRankedPair(cycle);
+  const mostConvincing = (reviewed: CouncilMember): string => {
+    const ranks = members.flatMap((reviewer) => {
+      const rank = reviewer === reviewed ? null : rankGiven(cycle, reviewer, reviewed);
+      return rank === null ? [] : [rank];
+    });
+    return ranks.length ? `${ranks.filter((r) => r === "most").length} of ${ranks.length}` : "—";
+  };
+  const columns = [
+    matrixHelper.display({
+      id: "reviewer",
+      header: "Reviewer",
+      cell: ({ row }) =>
+        row.original.reviewer ? (
+          <span className="font-semibold">{row.original.reviewer.persona}</span>
+        ) : (
+          <span className="font-mono text-xs text-muted uppercase">Most convincing to</span>
+        ),
+    }),
+    ...members.map((reviewed) =>
+      matrixHelper.display({
+        id: `reviewed-${reviewed.seatId}`,
+        header: () => <abbr title={reviewed.persona}>{personaInitials(reviewed.persona)}</abbr>,
+        cell: ({ row }) => {
+          const reviewer = row.original.reviewer;
+          if (!reviewer) return <span className="font-mono whitespace-nowrap">{mostConvincing(reviewed)}</span>;
+          if (reviewer === reviewed) return <span className="text-muted">—</span>;
+          const rank = rankGiven(cycle, reviewer, reviewed);
+          if (rank === null) return <span className="text-muted">·</span>;
+          const selected = pair?.reviewer === reviewer && pair.reviewed === reviewed;
+          return (
+            <button
+              type="button"
+              aria-pressed={selected}
+              aria-label={`${reviewer.persona} found ${reviewed.persona} ${CONVINCING[rank].label.toLowerCase()} convincing`}
+              onClick={() => setPair({ reviewer, reviewed })}
+              className={cn(
+                "flex cursor-pointer rounded-md p-0.5 transition duration-150 hover:ring-2 hover:ring-blue-light",
+                focusRingClasses,
+                selected && "ring-2 ring-navy",
+              )}
+            >
+              <Tag tone={CONVINCING[rank].tone}>{CONVINCING[rank].label}</Tag>
+            </button>
+          );
+        },
+      }),
+    ),
+  ];
+  const critique = pair
+    ? cycle.reviews
+        .find((r) => r.persona === pair.reviewer.persona)
+        ?.review?.critiques.find((c) => c.label.trim().split(/\s+/).at(-1) === pair.reviewed.label)
+    : undefined;
+
   return (
     <>
-      <Section title="Peer review index">
+      <Section title={`Cycle ${cycle.cycle} peer review`}>
         <p className="text-sm text-strong-muted">
-          Index: average rank from the other members, 0 to 100 (100 = always ranked best). Agrees: how often the member matched the chairman.
+          How convincing each reviewer found the other members&apos; answers: Most, Middle or Least convincing.
         </p>
-        <DataTable columns={PEER_COLUMNS} data={cycle.peerIndex} getRowId={(r) => r.label} />
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-navy">
+          <MousePointerClick size={16} aria-hidden="true" />
+          Click any cell to read why
+        </p>
+        <DataTable compact
+          columns={columns}
+          data={[...members.map((reviewer) => ({ reviewer })), { reviewer: null }]}
+          getRowId={(r) => (r.reviewer ? String(r.reviewer.seatId) : "average")}
+        />
       </Section>
-      {cycle.reviews.map((r) => (
-        <Section key={r.label} title={`${r.persona} (Response ${r.label}) reviews`}>
-          <Tokens tokensIn={r.tokensIn} tokensOut={r.tokensOut} />
-          {r.review ? (
+      {pair ? (
+        <Section
+          title={`Why ${pair.reviewer.persona} found ${pair.reviewed.persona} ${CONVINCING[rankGiven(cycle, pair.reviewer, pair.reviewed) ?? "middle"].label.toLowerCase()} convincing`}
+        >
+          {critique ? (
             <>
-              <p className="font-mono text-sm">Ranking: {r.review.ranking.join(" > ")}</p>
-              {r.review.critiques.map((c) => (
-                <details key={c.label} className="text-sm">
-                  <summary className="cursor-pointer font-semibold">{c.label}</summary>
-                  <p className="text-strong-muted">
-                    <span className="font-medium text-green-text">Strengths: </span>
-                    {c.strengths}
-                  </p>
-                  <p className="text-strong-muted">
-                    <span className="font-medium text-red-dark">Concerns: </span>
-                    {c.concerns}
-                  </p>
-                </details>
-              ))}
+              <p className="text-sm text-strong-muted">
+                <span className="font-medium text-green-text">Strengths: </span>
+                {critique.strengths}
+              </p>
+              <p className="text-sm text-strong-muted">
+                <span className="font-medium text-red-dark">Concerns: </span>
+                {critique.concerns}
+              </p>
             </>
           ) : (
-            <Tag tone="red">{r.error ?? "No review"}</Tag>
+            <p className="text-sm text-muted">No written review.</p>
           )}
         </Section>
-      ))}
+      ) : null}
     </>
   );
 }
 
-function ChairmanPanel({ cycle, ...rest }: { cycle: CouncilCycle } & PanelContext) {
+type VerdictRow = { who: string; verdict: CouncilVerdict | undefined; final: boolean };
+const verdictHelper = createTableColumnHelper<VerdictRow>();
+
+function VerdictCompare({ cycle, articleId }: { cycle: CouncilCycle; articleId: number }) {
+  const final = cycle.chairman.verdicts?.find((v) => v.article_id === articleId);
+  const rows: VerdictRow[] = [
+    { who: "Chairman (final)", verdict: final, final: true },
+    ...cycle.members.map((m) => ({ who: m.persona, verdict: m.verdicts?.find((v) => v.article_id === articleId), final: false })),
+  ];
+  const overruled = (row: VerdictRow, pick: (v: CouncilVerdict) => unknown) =>
+    !row.final && row.verdict !== undefined && final !== undefined && pick(row.verdict) !== pick(final);
+  const columns = [
+    verdictHelper.accessor((r) => r.who, {
+      id: "who",
+      header: "Member",
+      cell: ({ row }) => (
+        <MemberName name={row.original.who} final={row.original.final} />
+      ),
+    }),
+    verdictHelper.display({
+      id: "valid",
+      header: "Valid",
+      cell: ({ row }) =>
+        row.original.verdict ? (
+          <Value overruled={overruled(row.original, (v) => v.valid)}>{row.original.verdict.valid ? "Yes" : "No"}</Value>
+        ) : (
+          "—"
+        ),
+    }),
+    verdictHelper.display({
+      id: "severity",
+      header: "Severity",
+      cell: ({ row }) =>
+        row.original.verdict ? (
+          <Value overruled={overruled(row.original, (v) => v.severity)}>{row.original.verdict.severity}/5</Value>
+        ) : (
+          "—"
+        ),
+    }),
+    verdictHelper.display({
+      id: "impact",
+      header: "Impact",
+      cell: ({ row }) =>
+        row.original.verdict ? (
+          <Value overruled={overruled(row.original, (v) => v.impact_type)}>
+            {impactLabel(row.original.verdict.impact_type) ?? "None"}
+          </Value>
+        ) : (
+          "—"
+        ),
+    }),
+  ];
+  return <DataTable compact columns={columns} data={rows} getRowId={(r) => r.who} />;
+}
+
+type ForecastRow = { who: string; forecast: CouncilItemForecast | undefined; final: boolean };
+const forecastHelper = createTableColumnHelper<ForecastRow>();
+
+function ForecastCompare({ cycle, itemId, unit }: { cycle: CouncilCycle; itemId: number; unit: string }) {
+  const final = cycle.chairman.forecasts?.find((f) => f.item_id === itemId);
+  const rows: ForecastRow[] = [
+    { who: "Chairman (final)", forecast: final, final: true },
+    ...cycle.members.map((m) => ({ who: m.persona, forecast: m.forecasts?.find((f) => f.item_id === itemId), final: false })),
+  ];
+  const cells = (f: CouncilItemForecast | undefined) => outlookCells(f?.outlook ?? null, unit);
+  const overruled = (row: ForecastRow, pick: (f: CouncilItemForecast) => string) =>
+    !row.final && row.forecast !== undefined && final !== undefined && pick(row.forecast) !== pick(final);
+  const columns = [
+    forecastHelper.accessor((r) => r.who, {
+      id: "who",
+      header: "Member",
+      cell: ({ row }) => (
+        <MemberName name={row.original.who} final={row.original.final} />
+      ),
+    }),
+    forecastHelper.display({
+      id: "usage",
+      header: "Forecasted usage",
+      cell: ({ row }) => (
+        <Value overruled={overruled(row.original, (f) => cells(f).usage)}>{cells(row.original.forecast).usage}</Value>
+      ),
+    }),
+    forecastHelper.display({
+      id: "days",
+      header: "Days",
+      cell: ({ row }) => (
+        <Value overruled={overruled(row.original, (f) => cells(f).days)}>{cells(row.original.forecast).days}</Value>
+      ),
+    }),
+    forecastHelper.display({
+      id: "change",
+      header: "vs algorithmic",
+      cell: ({ row }) =>
+        row.original.forecast ? (
+          <Value overruled={overruled(row.original, (f) => usageChange(f.usage_multiplier).short)}>
+            {usageChange(row.original.forecast.usage_multiplier).short}
+          </Value>
+        ) : (
+          "—"
+        ),
+    }),
+    forecastHelper.display({
+      id: "confidence",
+      header: "Confidence",
+      cell: ({ row }) => (
+        <span className="font-mono">
+          {row.original.forecast ? `${Math.round(row.original.forecast.confidence * 100)}%` : "—"}
+        </span>
+      ),
+    }),
+  ];
+  return <DataTable compact columns={columns} data={rows} getRowId={(r) => r.who} />;
+}
+
+function ChairmanPanel({ cycle, ...context }: { cycle: CouncilCycle } & PanelContext) {
   const { chairman } = cycle;
-  const compare = cycle.members.map((m) => {
-    if (cycle.cycle === 1) {
-      const articleId = rest.picker.articleId ?? chairman.verdicts?.[0]?.article_id;
-      const v = m.verdicts?.find((x) => x.article_id === articleId);
-      return { member: m, text: v ? `${v.valid ? "Valid" : "Not valid"}, severity ${v.severity}` : "—" };
-    }
-    const f = m.forecasts?.find((x) => x.item_id === rest.picker.itemId);
-    return { member: m, text: f ? `×${f.usage_multiplier}` : "—" };
-  });
+  const articleId = chairman.verdicts?.length ? pickArticle(chairman.verdicts, context.picker.articleId) : null;
+  const itemId = context.picker.itemId;
   return (
     <>
       <Section title={`Cycle ${cycle.cycle} chairman`}>
         <p className="text-sm text-strong-muted">{chairman.brief}</p>
         <Tokens tokensIn={chairman.tokensIn} tokensOut={chairman.tokensOut} />
-        {chairman.error ? <Tag tone="red">{chairman.error}</Tag> : null}
+        {chairman.error && chairman.called ? <Tag tone="red">{chairman.error}</Tag> : null}
       </Section>
       <Section title="Final decision">
-        <CycleAnswer cycle={cycle.cycle} verdicts={chairman.verdicts} forecasts={chairman.forecasts} {...rest} />
+        <CycleAnswer
+          cycle={cycle.cycle}
+          verdicts={chairman.verdicts}
+          forecasts={chairman.forecasts}
+          reasoningLabel="Chairman's reasoning"
+          {...context}
+        />
       </Section>
       <Section title="How each member answered">
-        <ul className="flex flex-col gap-1 text-sm">
-          {compare.map(({ member, text }) => (
-            <li key={member.seatId} className="flex justify-between gap-3">
-              <span>{member.persona}</span>
-              <span className="font-mono">{text}</span>
-            </li>
-          ))}
-        </ul>
+        {cycle.cycle === 1 && articleId !== null ? <VerdictCompare cycle={cycle} articleId={articleId} /> : null}
+        {cycle.cycle === 2 && itemId !== null ? (
+          <ForecastCompare cycle={cycle} itemId={itemId} unit={context.lookups.unitOf(itemId)} />
+        ) : null}
       </Section>
     </>
   );
@@ -316,9 +552,10 @@ function ScreenerPanel({ council }: { council: RunCouncil }) {
           <p className="text-sm font-semibold">{a.title}</p>
           <span className="flex flex-wrap gap-1.5">
             <Tag tone={a.selected ? "green" : "grey"}>{a.selected ? "Selected" : "Rejected"}</Tag>
-            {a.impactType && a.impactType !== "none" ? <Tag tone="blue">Impact: {a.impactType}</Tag> : null}
+            <ImpactTag impact={a.impactType} />
           </span>
-          <TagList values={[...a.categories, ...a.regions]} />
+          <TagList values={a.categories} />
+          <Eyebrow>{a.selected ? "AI summary" : "AI: why it was rejected"}</Eyebrow>
           <p className="text-sm text-strong-muted">{a.selected ? a.summary : a.rejectReason}</p>
         </Section>
       ))}
@@ -345,45 +582,59 @@ function AlgorithmicPanel({ council, lookups }: { council: RunCouncil; lookups: 
   );
 }
 
-type AiRow = RunCouncil["aiForecast"][number] & { name: string };
+type AiRow = RunCouncil["aiForecast"][number] & { name: string; unit: string };
 const aiHelper = createTableColumnHelper<AiRow>();
 const AI_COLUMNS = [
-  aiHelper.accessor((r) => r.name, { id: "item", header: "Item" }),
-  aiHelper.accessor((r) => r.usageMultiplier ?? 1, {
-    id: "multiplier",
-    header: "Multiplier",
+  aiHelper.accessor((r) => r.name, {
+    id: "item",
+    header: "Item",
     cell: ({ row }) => (
-      <Tag tone={row.original.usageMultiplier === 1 ? "grey" : "amber"}>×{row.original.usageMultiplier ?? 1}</Tag>
+      <span className="flex flex-col items-start gap-1">
+        {row.original.name}
+        {row.original.triggered ? <Tag tone="red">Restock now</Tag> : null}
+      </span>
     ),
   }),
-  aiHelper.accessor((r) => (r.triggered ? 1 : 0), {
-    id: "triggered",
-    header: "Restock now",
-    cell: ({ row }) => (row.original.triggered ? <Tag tone="red">Yes</Tag> : <span className="text-muted">No</span>),
+  aiHelper.display({
+    id: "usage",
+    header: "Usage",
+    cell: ({ row }) => (
+      <span className="font-mono whitespace-nowrap">{outlookCells(row.original.outlook, row.original.unit).usage}</span>
+    ),
   }),
-  aiHelper.accessor((r) => r.buyQty ?? 0, {
-    id: "buy",
-    header: "Buy",
-    cell: ({ row }) => <span className="font-mono">{Math.round(row.original.buyQty ?? 0).toLocaleString()}</span>,
+  aiHelper.display({
+    id: "days",
+    header: "Days",
+    cell: ({ row }) => (
+      <span className="font-mono whitespace-nowrap">{outlookCells(row.original.outlook, row.original.unit).days}</span>
+    ),
+  }),
+  aiHelper.accessor((r) => Math.abs((r.usageMultiplier ?? 1) - 1), {
+    id: "change",
+    header: "vs algo",
+    cell: ({ row }) => {
+      const change = usageChange(row.original.usageMultiplier ?? 1);
+      return <Tag tone={change.tone}>{change.short}</Tag>;
+    },
   }),
 ];
 
 function AiPanel({ council, lookups }: { council: RunCouncil; lookups: Lookups }) {
   const rows = council.aiForecast
-    .map((r) => ({ ...r, name: lookups.itemName(r.itemId) }))
+    .map((r) => ({ ...r, name: lookups.itemName(r.itemId), unit: lookups.unitOf(r.itemId) }))
     .sort((a, b) => Math.abs((b.usageMultiplier ?? 1) - 1) - Math.abs((a.usageMultiplier ?? 1) - 1));
+  const changed = rows.filter((r) => usageChange(r.usageMultiplier ?? 1).pct !== 0).length;
+  const restock = rows.filter((r) => r.triggered).length;
   return (
     <Section title="AI forecast">
       <p className="text-sm text-strong-muted">
-        {rows.filter((r) => (r.usageMultiplier ?? 1) !== 1).length} items changed from the algorithmic forecast,{" "}
-        {rows.filter((r) => r.triggered).length} need restocking now.
+        {changed} item{changed === 1 ? "" : "s"} changed from the algorithmic forecast, {restock} need
+        {restock === 1 ? "s" : ""} restocking now.
       </p>
-      <DataTable columns={AI_COLUMNS} data={rows} getRowId={(r) => String(r.itemId)} />
+      <DataTable compact columns={AI_COLUMNS} data={rows} getRowId={(r) => String(r.itemId)} />
     </Section>
   );
 }
-
-type PanelContext = { picker: Picker; lookups: Lookups; items: { id: number; name: string }[] };
 
 function panelFor(nodeId: string, council: RunCouncil, context: PanelContext): React.ReactNode {
   if (nodeId === "algorithmic") return <AlgorithmicPanel council={council} lookups={context.lookups} />;
@@ -413,10 +664,11 @@ export function CouncilNodePanel({
   onClose: () => void;
 }) {
   const [articleId, setArticleId] = React.useState<number | null>(null);
-  const itemNames = new Map(council.items.map((i) => [i.id, i.name]));
+  const itemById = new Map(council.items.map((i) => [i.id, i]));
   const titles = new Map(council.articles.map((a) => [a.id, a.title]));
   const lookups: Lookups = {
-    itemName: (id) => itemNames.get(id) ?? `Item ${id}`,
+    itemName: (id) => itemById.get(id)?.name ?? `Item ${id}`,
+    unitOf: (id) => itemById.get(id)?.unit ?? "units",
     articleTitle: (id) => titles.get(id) ?? `Article ${id}`,
   };
   const context: PanelContext = {

@@ -22,19 +22,21 @@ import {
   Check,
   Filter,
   Gavel,
-  Maximize,
+  LocateFixed,
   Minus,
   Newspaper,
   Plus,
   Scale,
   Sigma,
   Sparkles,
+  TriangleAlert,
   X,
   type LucideIcon,
 } from "lucide-react";
 import { IconButton } from "@/components/ui/Button";
 import { cn, focusRingClasses } from "@/lib/cn";
 import type { CouncilMember, RunCouncil } from "@/lib/api/resources";
+import { BIG_CHANGE, isBigChange, personaInitials } from "@/components/predictions/councilFormat";
 
 export type NodeStatus = "done" | "running" | "failed" | "pending" | "skipped";
 
@@ -45,6 +47,7 @@ type StepData = {
   subtitle: string;
   look: Look;
   status: NodeStatus;
+  alert: boolean;
   selected: boolean;
   delay: number;
   onSelect: (id: string) => void;
@@ -120,6 +123,14 @@ function OrbitRing({ color }: { color: string }) {
   );
 }
 
+function AlertMark() {
+  return (
+    <span className="pointer-events-none absolute -top-1.5 -left-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-card bg-amber-border text-ink motion-safe:animate-pop">
+      <TriangleAlert size={10} strokeWidth={3} aria-hidden="true" />
+    </span>
+  );
+}
+
 function RunningPulse() {
   return (
     <span className="pointer-events-none absolute -top-1 -right-1 flex h-3 w-3" aria-hidden="true">
@@ -165,6 +176,7 @@ function StepNodeView({ id, data }: NodeProps<StepNode>) {
           focusRingClasses,
           look.kind === "persona" ? PERSONA_COLOR[look.colorIndex % PERSONA_COLOR.length] : ICON_TONE[look.tone],
           look.kind === "persona" && "border-transparent",
+          data.alert && "ring-4 ring-amber-border",
           data.selected && "border-ink ring-4 ring-blue-light/30",
           status === "skipped" && "border-dashed",
           status === "failed" && "border-red",
@@ -174,6 +186,7 @@ function StepNodeView({ id, data }: NodeProps<StepNode>) {
         {status === "done" ? <DoneMark /> : null}
         {status === "failed" ? <FailMark /> : null}
         {status === "running" ? <RunningPulse /> : null}
+        {data.alert ? <AlertMark /> : null}
       </button>
       <Handle type="source" position={Position.Right} isConnectable={false} className="invisible" />
       <div className="pointer-events-none absolute top-full left-1/2 flex w-40 -translate-x-1/2 flex-col items-center pt-2 text-center">
@@ -249,16 +262,7 @@ function statusFor(
   return status === "failed" ? "failed" : "running";
 }
 
-function initials(persona: string): string {
-  const words = persona.split(/[\s/&]+/).filter(Boolean);
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return words
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join("");
-}
-
-type GraphNode = { id: string; title: string; subtitle: string; look: Look; status: NodeStatus };
+type GraphNode = { id: string; title: string; subtitle: string; look: Look; status: NodeStatus; alert?: boolean };
 type Column = GraphNode[];
 
 function memberNode(cycle: 1 | 2, member: CouncilMember, index: number, council: RunCouncil): GraphNode {
@@ -266,7 +270,7 @@ function memberNode(cycle: 1 | 2, member: CouncilMember, index: number, council:
     id: `c${cycle}-member-${member.seatId}`,
     title: member.persona,
     subtitle: `Cycle ${cycle}`,
-    look: { kind: "persona", colorIndex: index, initials: initials(member.persona) },
+    look: { kind: "persona", colorIndex: index, initials: personaInitials(member.persona) },
     status: statusFor(
       council,
       cycle === 1 ? 3 : 4,
@@ -332,12 +336,15 @@ function cycleColumns(council: RunCouncil, cycle: 1 | 2): Column[] {
 
 function buildColumns(council: RunCouncil): Column[] {
   const columns: Column[] = [];
+  const bigChanges = council.aiForecast.filter((r) => isBigChange(r.usageMultiplier)).length;
   if (council.run.scope === "full" && !council.reused) {
     columns.push([
       {
         id: "algorithmic",
         title: "Algorithmic forecast",
-        subtitle: "Database only",
+        subtitle: council.algorithmic
+          ? `${council.algorithmic.forecastCount} items · ${council.algorithmic.atOrBelowItemIds.length} at threshold`
+          : "Database only",
         look: { kind: "icon", icon: Sigma, tone: "card" },
         status: statusFor(council, 0, council.algorithmic !== null && council.algorithmic.forecastCount > 0),
       },
@@ -368,7 +375,8 @@ function buildColumns(council: RunCouncil): Column[] {
       {
         id: "ai",
         title: "AI forecast",
-        subtitle: `${council.aiForecast.length} items`,
+        subtitle: bigChanges > 0 ? `${bigChanges} item${bigChanges === 1 ? "" : "s"} ≥${Math.round(BIG_CHANGE * 100)}% off algorithmic` : "No big changes",
+        alert: bigChanges > 0,
         look: { kind: "icon", icon: Sparkles, tone: "navy" },
         status: statusFor(council, 5, council.aiForecast.length > 0),
       },
@@ -394,6 +402,7 @@ function buildGraph(council: RunCouncil, selectedId: string | null, onSelect: (i
           subtitle: node.subtitle,
           look: node.look,
           status: node.status,
+          alert: node.alert ?? false,
           selected: node.id === selectedId,
           delay: ((col * 3 + row) * 0.37) % 2.4,
           onSelect,
@@ -428,8 +437,12 @@ function ZoomControls() {
       <IconButton aria-label="Zoom out" onClick={() => flow.zoomOut({ duration: 200 })}>
         <Minus size={18} aria-hidden="true" />
       </IconButton>
-      <IconButton aria-label="Fit to view" onClick={() => flow.fitView({ duration: 300, padding: 0.2 })}>
-        <Maximize size={18} aria-hidden="true" />
+      <IconButton
+        aria-label="Recenter graph"
+        title="Recenter graph"
+        onClick={() => flow.fitView({ duration: 300, padding: 0.2 })}
+      >
+        <LocateFixed size={18} aria-hidden="true" />
       </IconButton>
       <span className="w-14 text-center font-mono text-xs text-muted">{Math.round(zoom * 100)}%</span>
     </Panel>

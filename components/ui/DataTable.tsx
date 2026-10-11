@@ -14,6 +14,7 @@ export function DataTable<T extends RowData>({
   getRowId,
   emptyMessage = "Nothing to show.",
   pageSize,
+  compact = false,
 }: {
   // `any` here is the documented TanStack Table pattern for a generic table
   // wrapper: each column's cell value type varies, and the columns array is
@@ -25,6 +26,7 @@ export function DataTable<T extends RowData>({
   emptyMessage?: string;
   // When set, rows are shown this many at a time with previous/next controls.
   pageSize?: number;
+  compact?: boolean;
 }) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [page, setPage] = React.useState(0);
@@ -49,7 +51,7 @@ export function DataTable<T extends RowData>({
   return (
     <div className="flex flex-col gap-2">
       <div className="overflow-x-auto rounded-md border border-line">
-        <table className="w-full min-w-max border-collapse text-sm">
+        <table className={cn("w-full border-collapse text-sm", !compact && "min-w-max")}>
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id} className="border-b border-line bg-page">
@@ -60,7 +62,10 @@ export function DataTable<T extends RowData>({
                     <th
                       key={header.id}
                       scope="col"
-                      className="px-3 py-2.5 text-left font-mono text-xs font-medium tracking-wide text-muted uppercase"
+                      className={cn(
+                        "text-left font-mono text-xs font-medium tracking-wide text-muted uppercase",
+                        compact ? "px-2 py-2" : "px-3 py-2.5",
+                      )}
                     >
                       {header.isPlaceholder ? null : canSort ? (
                         <button
@@ -97,7 +102,7 @@ export function DataTable<T extends RowData>({
               visibleRows.map((row) => (
                 <tr key={row.id} className={cn("border-b border-line last:border-0 hover:bg-page")}>
                   {row.getAllCells().map((cell) => (
-                    <td key={cell.id} className="px-3 py-2.5 align-middle">
+                    <td key={cell.id} className={cn("align-middle", compact ? "px-2 py-2" : "px-3 py-2.5")}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
