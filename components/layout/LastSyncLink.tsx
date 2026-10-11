@@ -9,11 +9,19 @@ import { SYNC_POLL_MS, isActive } from "@/lib/data/syncRuns";
 
 const IDLE_POLL_MS = 60_000;
 
-function useNow(intervalMs: number): number {
-  const [now, setNow] = React.useState(() => Date.now());
+// null until mounted: reading the clock during render isn't allowed while
+// the shell is prerendered (it broke the production build), so the relative
+// time only appears after the first client tick.
+function useNow(intervalMs: number): number | null {
+  const [now, setNow] = React.useState<number | null>(null);
   React.useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(timer);
+    const tick = () => setNow(Date.now());
+    const first = setTimeout(tick, 0);
+    const timer = setInterval(tick, intervalMs);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
   }, [intervalMs]);
   return now;
 }
@@ -35,9 +43,9 @@ export function LastSyncLink() {
     ? "Syncing now…"
     : failed
       ? "Last sync failed"
-      : lastSucceeded?.finished_at
+      : lastSucceeded?.finished_at && now !== null
         ? `Last sync ${formatDistanceStrict(Date.parse(lastSucceeded.finished_at), now, { addSuffix: true, roundingMethod: "floor" })}`
-        : runsQuery.isSuccess
+        : runsQuery.isSuccess && !lastSucceeded
           ? "No syncs yet"
           : "Checking last sync…";
 
